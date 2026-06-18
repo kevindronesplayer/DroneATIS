@@ -298,7 +298,8 @@ const ACK_MAP={
 };
 
 function connect(){
-  ws=new WebSocket(`ws://${location.host}`);
+  const wsProtocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
+  ws=new WebSocket(`${wsProtocol}//${location.host}`);
   ws.onopen=()=>{setDot(true);ws.send(JSON.stringify({type:'tower_hello',towerName:towerName,towerType:towerType}));};
   ws.onclose=()=>{setDot(false);setTimeout(connect,3000);};
   ws.onerror=()=>ws.close();
