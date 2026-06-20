@@ -4,6 +4,7 @@ const path = require('path');
 const { WebSocketServer } = require('ws');
 
 const PORT = process.env.PORT || 3000;
+const ESP_PORT = process.env.ESP_PORT || 3001;
 
 const pilots = new Map();
 const groups = new Map();
@@ -45,7 +46,8 @@ const connections = new Map();
 
 function bcast(data,fn=null){
   const msg=JSON.stringify(data);
-  wss.clients.forEach(ws=>{
+  const allClients=new Set([...wss.clients,...(typeof wssEsp!=="undefined"?wssEsp.clients:[])]);
+  allClients.forEach(ws=>{
     if(ws.readyState!==1) return;
     if(fn&&!fn(connections.get(ws))) return;
     ws.send(msg);
@@ -120,7 +122,9 @@ setInterval(()=>{
   pilots.forEach(p=>{ if(p.ackPending&&Date.now()>p.ackDeadline) toPilot(p.clientId,{type:'ack_overdue'}); });
 },5000);
 
-wss.on('connection',ws=>{
+wss.on('connection', handleConnection);
+
+function handleConnection(ws){
   connections.set(ws,{role:null,clientId:null});
 
   ws.on('message',raw=>{
@@ -412,3 +416,9 @@ wss.on('connection',ws=>{
 });
 
 server.listen(PORT,()=>console.log(`Drone Tower Server running on http://localhost:${PORT}`));
+
+// ESP32 專用明文 WebSocket
+const espHttpServer = require('http').createServer((_,res)=>{res.writeHead(200);res.end('ok');});
+const wssEsp = new WebSocketServer({server:espHttpServer});
+wssEsp.on('connection', handleConnection);
+espHttpServer.listen(ESP_PORT,()=>console.log(`ESP32 plain WS on port ${ESP_PORT}`));
