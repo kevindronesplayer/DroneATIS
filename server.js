@@ -413,7 +413,7 @@ function handleConnection(ws){
     }
     connections.delete(ws);
   });
-});
+}
 
 server.listen(PORT,()=>console.log(`Drone Tower Server running on http://localhost:${PORT}`));
 
