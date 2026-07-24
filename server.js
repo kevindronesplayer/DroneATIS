@@ -16,23 +16,26 @@ groupCounter = 1;
 
 const ARROWS = ['1','2','3','4'];
 function generateRoomCode(){ let c=''; for(let i=0;i<4;i++) c+=ARROWS[Math.floor(Math.random()*4)]; return c; }
-function todayMidnight(){ const d=new Date(); d.setHours(23,59,59,999); return d.getTime(); }
-function dailyCodeForPilot(name){ const dateStr=new Date().toISOString().slice(0,10); const seed=name+dateStr; let hash=0; for(let i=0;i<seed.length;i++) hash=(hash*31+seed.charCodeAt(i))>>>0; let c=''; for(let i=0;i<4;i++){ c+=ARROWS[hash%4]; hash=Math.floor(hash/4); } return c; }
 function generateClientId(){ return 'p_'+Date.now()+'_'+Math.random().toString(36).slice(2,7); }
 
-// 當天午夜（23:59:59）過期時間
-function todayMidnight(){
-  const d=new Date(); d.setHours(23,59,59,999); return d.getTime();
-}
-// 根據飛手名稱 + 今天日期，產生固定四碼序號（每天同一組，斷線重連也一樣）
+// 當天午夜過期
+function todayMidnight(){ const d=new Date(); d.setHours(23,59,59,999); return d.getTime(); }
+// 根據飛手名稱+今天日期，產生固定四碼序號
 function dailyCodeForPilot(name){
-  const dateStr=new Date().toISOString().slice(0,10); // YYYY-MM-DD
-  const seed=name+dateStr;
-  let hash=0;
+  const dateStr=new Date().toISOString().slice(0,10);
+  const seed=name+dateStr; let hash=0;
   for(let i=0;i<seed.length;i++) hash=(hash*31+seed.charCodeAt(i))>>>0;
-  let c='';
-  for(let i=0;i<4;i++){ c+=ARROWS[hash%4]; hash=Math.floor(hash/4); }
+  let c=''; for(let i=0;i<4;i++){ c+=ARROWS[hash%4]; hash=Math.floor(hash/4); }
   return c;
+}
+
+// 取得目前已連線的塔台資訊
+function getActiveTower(){
+  let tName='塔台'; let tType='南塔';
+  connections.forEach((c)=>{
+    if(c.role==='tower'){ if(c.towerName) tName=c.towerName; if(c.towerType) tType=c.towerType; }
+  });
+  return {tName,tType};
 }
 
 function generateCSV(){
@@ -305,25 +308,33 @@ wss.on('connection',ws=>{
       case 'pilot_register':{
         const pilotName=msg.name||'未知飛手';
         const roomCode=dailyCodeForPilot(pilotName);  // 每天固定序號
-        const expiry=todayMidnight();                  // 到今天午夜過期
+        const expiry=todayMidnight();
 
-        // 若同名飛手已存在（斷線重連），保留其資料並更新 ws
+        // 若同名飛手已存在（斷線重連），保留其資料
         let existingId=null;
-        pilots.forEach((p,cid)=>{
-          if(p.name===pilotName) existingId=cid;
-        });
+        pilots.forEach((p,cid)=>{ if(p.name===pilotName) existingId=cid; });
 
         let clientId;
         if(existingId){
-          // 重連：沿用舊 clientId 和資料，只更新連線狀態
+          // 重連：沿用舊 clientId 和資料
           clientId=existingId;
           conn.role='pilot'; conn.clientId=clientId;
           const ep=pilots.get(clientId);
+          const wasTowerConnected=ep.towerConnected;
           ep.wifi=true; ep.lastSeen=Date.now();
           ep.roomCode=roomCode; ep.roomCodeExpiry=expiry;
           ep.battery=msg.battery||ep.battery||100;
+
+          ws.send(JSON.stringify({type:'registered',clientId,roomCode,reconnect:true}));
+          toTower({type:'pilots_update',pilots:pilotSnap()});
+
+          // 如果之前已有塔台配對，自動重新發送 tower_connected，不需要塔台重新輸入序號
+          if(wasTowerConnected){
+            const {tName,tType}=getActiveTower();
+            toPilot(clientId,{type:'tower_connected',groupName:groupName(ep.groupId),towerName:tName,towerType:tType,reconnect:true});
+          }
         } else {
-          // 新飛手
+          // 全新飛手
           clientId=generateClientId();
           conn.role='pilot'; conn.clientId=clientId;
           pilots.set(clientId,{
@@ -335,9 +346,9 @@ wss.on('connection',ws=>{
             landingTime:null,takeoffTime:null,towerConnected:false,
             connectedAt:new Date().toISOString(),
           });
+          ws.send(JSON.stringify({type:'registered',clientId,roomCode}));
+          toTower({type:'pilots_update',pilots:pilotSnap()});
         }
-        ws.send(JSON.stringify({type:'registered',clientId,roomCode}));
-        toTower({type:'pilots_update',pilots:pilotSnap()});
         break;
       }
 
