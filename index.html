@@ -274,10 +274,10 @@ body{font-family:-apple-system,'Noto Sans TC',sans-serif;background:var(--bg);co
 <div class="land-panel" id="landPanel">
   <div class="land-panel-title">⬇ 降落時間輸入（24小時制）</div>
   <input class="land-panel-input" id="landPanelInput" type="text" maxlength="20" inputmode="numeric" placeholder="例如 0912">
-  <div style="font-size:19px;color:var(--tx2)">輸入四個數字，例如 0912 代表 09:12</div>
-  <div class="land-panel-btns">
-    <button class="btn-land-cancel" id="btnLandCancel">取消</button>
-    <button class="btn-land-send" id="btnLandSend">發送</button>
+  <div style="font-size:19px;color:var(--tx2);margin-bottom:4px">輸入四個數字，例如 0912 代表 09:12</div>
+  <div style="display:flex;gap:10px;">
+    <button id="btnLandCancel" style="background:var(--sf3);border:none;color:var(--tx2);border-radius:var(--rs);padding:14px 18px;font-size:21px;cursor:pointer;font-family:inherit;">取消</button>
+    <button id="btnLandSend" style="flex:1;background:var(--am);color:#000;border:none;border-radius:var(--rs);padding:14px 20px;font-size:26px;font-weight:700;cursor:pointer;font-family:inherit;">發送</button>
   </div>
 </div>
 
