@@ -85,9 +85,10 @@ body{font-family:-apple-system,'Noto Sans TC',sans-serif;background:var(--bg);co
 .land-panel.show{display:flex;}
 .land-panel-title{font-size:21px;color:var(--am);font-weight:600;}
 .land-panel-row{display:flex;align-items:center;gap:10px;}
-.land-panel-input{flex:1;background:var(--sf2);border:2px solid var(--am);color:var(--tx);border-radius:var(--rs);padding:14px 18px;font-size:26px;font-family:monospace;outline:none;}
+.land-panel-input{width:100%;background:var(--sf2);border:2px solid var(--am);color:var(--tx);border-radius:var(--rs);padding:14px 18px;font-size:26px;font-family:monospace;outline:none;}
 .land-panel-input::placeholder{color:var(--tx2);}
-.btn-land-send{background:var(--am);color:#000;border:none;border-radius:var(--rs);padding:10px 20px;font-size:26px;font-weight:700;cursor:pointer;font-family:inherit;}
+.land-panel-btns{display:flex;gap:10px;}
+.btn-land-send{flex:1;background:var(--am);color:#000;border:none;border-radius:var(--rs);padding:14px 20px;font-size:26px;font-weight:700;cursor:pointer;font-family:inherit;}
 .btn-land-cancel{background:var(--sf3);border:none;color:var(--tx2);border-radius:var(--rs);padding:14px 18px;font-size:21px;cursor:pointer;font-family:inherit;}
 
 /* GPS 位置按鈕 */
@@ -272,12 +273,13 @@ body{font-family:-apple-system,'Noto Sans TC',sans-serif;background:var(--bg);co
 <!-- 降落時間底部面板 -->
 <div class="land-panel" id="landPanel">
   <div class="land-panel-title">⬇ 降落時間輸入（24小時制）</div>
-  <div class="land-panel-row">
-    <input class="land-panel-input" id="landPanelInput" type="text" maxlength="20" inputmode="text">
-    <button class="btn-land-cancel" id="btnLandCancel">取消</button>
-    <button class="btn-land-send" id="btnLandSend">發送</button>
-  </div>
+  <input class="land-panel-input" id="landPanelInput" type="text" maxlength="20" inputmode="numeric" placeholder="例如 0912">
   <div style="font-size:19px;color:var(--tx2)">輸入四個數字，例如 0912 代表 09:12</div>
+  <div style="display:flex;gap:10px;margin-top:4px;">
+    <button id="btnLandCancel" style="background:var(--sf3);border:none;color:var(--tx2);border-radius:var(--rs);padding:14px 18px;font-size:21px;cursor:pointer;font-family:inherit;">取消</button>
+    <button id="btnLandSend" style="flex:1;background:var(--am);color:#000;border:none;border-radius:var(--rs);padding:14px 20px;font-size:26px;font-weight:700;cursor:pointer;font-family:inherit;">發送</button>
+  </div>
+</div>
 </div>
 
 
