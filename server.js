@@ -16,6 +16,8 @@ groupCounter = 1;
 
 const ARROWS = ['1','2','3','4'];
 function generateRoomCode(){ let c=''; for(let i=0;i<4;i++) c+=ARROWS[Math.floor(Math.random()*4)]; return c; }
+function todayMidnight(){ const d=new Date(); d.setHours(23,59,59,999); return d.getTime(); }
+function dailyCodeForPilot(name){ const dateStr=new Date().toISOString().slice(0,10); const seed=name+dateStr; let hash=0; for(let i=0;i<seed.length;i++) hash=(hash*31+seed.charCodeAt(i))>>>0; let c=''; for(let i=0;i<4;i++){ c+=ARROWS[hash%4]; hash=Math.floor(hash/4); } return c; }
 function generateClientId(){ return 'p_'+Date.now()+'_'+Math.random().toString(36).slice(2,7); }
 
 // 當天午夜（23:59:59）過期時間
