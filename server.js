@@ -18,6 +18,21 @@ const ARROWS = ['1','2','3','4'];
 function generateRoomCode(){ let c=''; for(let i=0;i<4;i++) c+=ARROWS[Math.floor(Math.random()*4)]; return c; }
 function generateClientId(){ return 'p_'+Date.now()+'_'+Math.random().toString(36).slice(2,7); }
 
+// 當天午夜（23:59:59）過期時間
+function todayMidnight(){
+  const d=new Date(); d.setHours(23,59,59,999); return d.getTime();
+}
+// 根據飛手名稱 + 今天日期，產生固定四碼序號（每天同一組，斷線重連也一樣）
+function dailyCodeForPilot(name){
+  const dateStr=new Date().toISOString().slice(0,10); // YYYY-MM-DD
+  const seed=name+dateStr;
+  let hash=0;
+  for(let i=0;i<seed.length;i++) hash=(hash*31+seed.charCodeAt(i))>>>0;
+  let c='';
+  for(let i=0;i<4;i++){ c+=ARROWS[hash%4]; hash=Math.floor(hash/4); }
+  return c;
+}
+
 function generateCSV(){
   const lines=['\uFEFF日期,分類名稱,飛手名稱,動作,時間'];
   flightLog.forEach(r=>lines.push(`${r.date},${r.groupName||'未分類'},${r.pilotName},${r.type==='takeoff'?'起飛':'降落'},${r.time}`));
@@ -45,8 +60,7 @@ const connections = new Map();
 
 function bcast(data,fn=null){
   const msg=JSON.stringify(data);
-  const allClients=new Set([...wss.clients]);
-  allClients.forEach(ws=>{
+  wss.clients.forEach(ws=>{
     if(ws.readyState!==1) return;
     if(fn&&!fn(connections.get(ws))) return;
     ws.send(msg);
@@ -121,9 +135,7 @@ setInterval(()=>{
   pilots.forEach(p=>{ if(p.ackPending&&Date.now()>p.ackDeadline) toPilot(p.clientId,{type:'ack_overdue'}); });
 },5000);
 
-wss.on('connection', handleConnection);
-
-function handleConnection(ws){
+wss.on('connection',ws=>{
   connections.set(ws,{role:null,clientId:null});
 
   ws.on('message',raw=>{
@@ -289,26 +301,39 @@ function handleConnection(ws){
       }
 
       case 'pilot_register':{
-        const clientId=generateClientId();
-        const roomCode=generateRoomCode();
-        conn.role='pilot'; conn.clientId=clientId;
-        // 清除同名的舊飛手，重新連線時公告/跑道/分類回到預設空白
+        const pilotName=msg.name||'未知飛手';
+        const roomCode=dailyCodeForPilot(pilotName);  // 每天固定序號
+        const expiry=todayMidnight();                  // 到今天午夜過期
+
+        // 若同名飛手已存在（斷線重連），保留其資料並更新 ws
+        let existingId=null;
         pilots.forEach((p,cid)=>{
-          if(p.name===(msg.name||'未知飛手') && cid!==clientId){
-            // 從舊分類移除
-            if(p.groupId){const old=groups.get(p.groupId);if(old)old.memberIds=old.memberIds.filter(x=>x!==cid);}
-            pilots.delete(cid);
-          }
+          if(p.name===pilotName) existingId=cid;
         });
-        pilots.set(clientId,{
-          clientId,name:msg.name||'未知飛手',roomCode,notam:'',rwy:'',
-          roomCodeExpiry:Date.now()+24*3600*1000,
-          groupId:null,status:'開機預備',wifi:true,gps:false,
-          lat:null,lng:null,battery:msg.battery||100,lastMessage:'',
-          lastSeen:Date.now(),ackPending:false,ackStatus:'',ackDeadline:null,
-          landingTime:null,takeoffTime:null,towerConnected:false,
-          connectedAt:new Date().toISOString(),
-        });
+
+        let clientId;
+        if(existingId){
+          // 重連：沿用舊 clientId 和資料，只更新連線狀態
+          clientId=existingId;
+          conn.role='pilot'; conn.clientId=clientId;
+          const ep=pilots.get(clientId);
+          ep.wifi=true; ep.lastSeen=Date.now();
+          ep.roomCode=roomCode; ep.roomCodeExpiry=expiry;
+          ep.battery=msg.battery||ep.battery||100;
+        } else {
+          // 新飛手
+          clientId=generateClientId();
+          conn.role='pilot'; conn.clientId=clientId;
+          pilots.set(clientId,{
+            clientId,name:pilotName,roomCode,notam:'',rwy:'',
+            roomCodeExpiry:expiry,
+            groupId:null,status:'開機預備',wifi:true,gps:false,
+            lat:null,lng:null,battery:msg.battery||100,lastMessage:'',
+            lastSeen:Date.now(),ackPending:false,ackStatus:'',ackDeadline:null,
+            landingTime:null,takeoffTime:null,towerConnected:false,
+            connectedAt:new Date().toISOString(),
+          });
+        }
         ws.send(JSON.stringify({type:'registered',clientId,roomCode}));
         toTower({type:'pilots_update',pilots:pilotSnap()});
         break;
@@ -412,7 +437,6 @@ function handleConnection(ws){
     }
     connections.delete(ws);
   });
-}
+});
 
 server.listen(PORT,()=>console.log(`Drone Tower Server running on http://localhost:${PORT}`));
-
