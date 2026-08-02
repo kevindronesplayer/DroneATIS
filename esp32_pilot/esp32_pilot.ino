@@ -75,15 +75,17 @@ unsigned long landDonePressAt = 0;
 bool landDonePressed = false;
 
 // 數字鍵盤
-enum KeypadMode { KP_NONE, KP_NOTAM };
+enum KeypadMode { KP_NONE, KP_NOTAM, KP_TURNPOINT };
 KeypadMode keypadMode = KP_NONE;
 String keypadBuffer   = "";
+bool notamHadValue    = false;   // 開啟公告鍵盤時是否已有舊值（判斷是否為「第二次輸入」）
+int  turnpointSource  = 0;       // 0=無, 1=專屬轉點按鈕, 2=公告二次輸入後詢問
 
 // ── 畫面狀態 ──────────────────────────────────────────────────────────────────
 enum Screen {
   SCR_BOOT, SCR_NAME_INPUT, SCR_WIFI_SCAN, SCR_WIFI_PASS,
   SCR_MODE_SELECT, SCR_FOLLOWER_CODE, SCR_CODE, SCR_IDLE,
-  SCR_COMMAND, SCR_END, SCR_CHARGING
+  SCR_COMMAND, SCR_END, SCR_CHARGING, SCR_TURNPOINT_CONFIRM
 };
 Screen currentScreen = SCR_BOOT;
 
@@ -770,13 +772,15 @@ void drawIdle(){
     M5.Display.fillRect(0,218,320,20,CLR_BG);
     M5.Display.setFont(&fonts::efontJA_24); M5.Display.setTextSize(1);
     M5.Display.setTextDatum(middle_center);
-    int segW=320/3; uint16_t lblGray=0xBDF7;
+    int segW=320/4; uint16_t lblGray=0xBDF7;
     M5.Display.setTextColor(lblGray);
     M5.Display.drawString("亮度:"+String(BRIGHT_LBL[brightnessLevel]),segW/2,225);
     uint16_t gc=!gpsEnabled?lblGray:(!gpsFixed?CLR_WHITE:CLR_GREEN);
     M5.Display.setTextColor(gc); M5.Display.drawString("GPS",segW+segW/2,225);
     M5.Display.setTextColor((currentStatus=="可以起飛")?lblGray:CLR_ACCENT);
     M5.Display.drawString("詢問",segW*2+segW/2,225);
+    M5.Display.setTextColor(CLR_ACCENT);
+    M5.Display.drawString("轉點",segW*3+segW/2,225);
   }
 }
 
@@ -956,11 +960,74 @@ void handleKeypadTouch2(int tx,int ty){
           notamCode="U"+keypadBuffer;
           StaticJsonDocument<128> doc; doc["type"]="pilot_notam"; doc["notam"]=notamCode; doc["pilotName"]=pilotName;
           String o;serializeJson(doc,o);wsClient.sendTXT(o);
-          keypadMode=KP_NONE;drawIdle();beep2();
+          keypadMode=KP_NONE;
+          if(notamHadValue){ currentScreen=SCR_TURNPOINT_CONFIRM; drawTurnpointConfirm(); beep2(); }
+          else { drawIdle(); beep2(); }
         } else { M5.Display.fillRect(40,200,240,26,CLR_BG); fXs();M5.Display.setTextDatum(middle_center); M5.Display.setTextColor(CLR_RED); M5.Display.drawString("請輸入4個數字",160,213); }
         return;
       }
       if(keypadBuffer.length()<4){keypadBuffer+=String(keys[i]);drawKeypad();}
+      return;
+    }
+  }
+}
+
+// ── 轉點：是否轉點確認 + 分鐘數鍵盤 ──────────────────────────────────────────
+void drawTurnpointConfirm(){
+  M5.Display.fillScreen(CLR_BG); M5.Display.setTextDatum(middle_center);
+  fLg(); M5.Display.setTextColor(CLR_ACCENT); M5.Display.drawString("是否轉點？",160,90);
+  fXs(); M5.Display.setTextColor(CLR_GRAY); M5.Display.drawString("公告已更新，是否同時回報轉點",160,124);
+  M5.Display.fillRoundRect(20,150,130,60,10,CLR_SURFACE); M5.Display.drawRoundRect(20,150,130,60,10,CLR_GRAY);
+  M5.Display.fillRoundRect(170,150,130,60,10,CLR_ACCENT);
+  fSm(); M5.Display.setTextColor(CLR_WHITE); M5.Display.drawString("否",85,180);
+  M5.Display.setTextColor(CLR_BG); M5.Display.drawString("是",235,180);
+}
+
+void drawMinuteKeypad(){
+  M5.Display.fillScreen(CLR_BG); M5.Display.fillRect(0,0,320,32,CLR_BG);
+  M5.Display.setTextDatum(middle_center);
+  fXs(); M5.Display.setTextColor(CLR_AMBER); M5.Display.drawString("轉點時間（大約幾分鐘）",160,10);
+  String preview=(keypadBuffer.length()>0?keypadBuffer:"__")+" 分鐘";
+  fLg(); M5.Display.setTextColor(CLR_ACCENT); M5.Display.drawString(preview,160,36);
+  int keys[]={1,2,3,4,5,6,7,8,9,-1,0,-2};
+  int kx=10,ky=58,kw=94,kh=40,gap=4;
+  for(int i=0;i<12;i++){
+    int col=i%3,row=i/3,x=kx+col*(kw+gap),y=ky+row*(kh+gap);
+    uint16_t bg=(keys[i]==-2)?CLR_GREEN:(keys[i]==-1)?CLR_RED:CLR_SURFACE;
+    M5.Display.fillRoundRect(x,y,kw,kh,6,bg); M5.Display.drawRoundRect(x,y,kw,kh,6,CLR_GRAY);
+    fSm(); M5.Display.setTextColor(CLR_WHITE); M5.Display.setTextDatum(middle_center);
+    if(keys[i]==-1) M5.Display.drawString("CLR",x+kw/2,y+kh/2);
+    else if(keys[i]==-2) M5.Display.drawString("OK",x+kw/2,y+kh/2);
+    else{char c[2];sprintf(c,"%d",keys[i]);M5.Display.drawString(c,x+kw/2,y+kh/2);}
+  }
+}
+
+void sendTurnpoint(int minutes, bool viaNotam){
+  StaticJsonDocument<128> doc;
+  doc["type"]="pilot_turnpoint"; doc["pilotName"]=pilotName; doc["minutes"]=minutes; doc["viaNotam"]=viaNotam;
+  String o; serializeJson(doc,o); wsClient.sendTXT(o);
+}
+
+void handleMinuteKeypadTouch(int tx,int ty){
+  int keys[]={1,2,3,4,5,6,7,8,9,-1,0,-2};
+  int kx=10,ky=58,kw=94,kh=40,gap=4;
+  for(int i=0;i<12;i++){
+    int col=i%3,row=i/3,x=kx+col*(kw+gap),y=ky+row*(kh+gap);
+    if(tx>=x&&tx<=x+kw&&ty>=y&&ty<=y+kh){
+      if(keys[i]==-1){keypadBuffer="";drawMinuteKeypad();return;}
+      if(keys[i]==-2){
+        int n=keypadBuffer.toInt();
+        if(keypadBuffer.length()==0||n<=0){
+          M5.Display.fillRect(40,200,240,26,CLR_BG); fXs();M5.Display.setTextDatum(middle_center);
+          M5.Display.setTextColor(CLR_RED); M5.Display.drawString("請輸入有效分鐘數",160,213);
+          return;
+        }
+        sendTurnpoint(n, turnpointSource==2);
+        keypadMode=KP_NONE; turnpointSource=0;
+        currentScreen=SCR_IDLE; drawIdle(); beep2();
+        return;
+      }
+      if(keypadBuffer.length()<2){keypadBuffer+=String(keys[i]);drawMinuteKeypad();}
       return;
     }
   }
@@ -1003,12 +1070,18 @@ void handleTouch(){
     // GPS
     if(tx>232&&tx<314&&ty>34&&ty<56){ if(pilotMode==MODE_MASTER){ gpsEnabled=!gpsEnabled; if(!gpsEnabled)gpsFixed=false; drawGpsBtn(); sendHeartbeat(); } }
     // 公告
-    if(tx<230&&ty>58&&ty<78&&pilotMode==MODE_MASTER){ keypadMode=KP_NOTAM; keypadBuffer=notamCode.length()>0?notamCode.substring(1):""; drawKeypad(); return; }
+    if(tx<230&&ty>58&&ty<78&&pilotMode==MODE_MASTER){ notamHadValue=notamCode.length()>0; keypadMode=KP_NOTAM; keypadBuffer=notamCode.length()>0?notamCode.substring(1):""; drawKeypad(); return; }
     // 降落長按
     if(ty>178&&ty<214&&currentStatus=="可以起飛"&&pilotMode==MODE_MASTER){ landBtnPressAt=millis(); landBtnPressed=true; }
+    // 轉點（底部第4格）
+    if(ty>=216&&ty<=240&&tx>=240&&pilotMode==MODE_MASTER){ turnpointSource=1; keypadMode=KP_TURNPOINT; keypadBuffer=""; drawMinuteKeypad(); return; }
+  }
+  else if(currentScreen==SCR_TURNPOINT_CONFIRM){
+    if(tx<160){ currentScreen=SCR_IDLE; drawIdle(); }
+    else { turnpointSource=2; keypadMode=KP_TURNPOINT; keypadBuffer=""; drawMinuteKeypad(); }
   }
   else if(currentScreen==SCR_COMMAND){
-    if(tx<230&&ty>58&&ty<78&&pilotMode==MODE_MASTER){ keypadMode=KP_NOTAM; keypadBuffer=notamCode.length()>0?notamCode.substring(1):""; drawKeypad(); return; }
+    if(tx<230&&ty>58&&ty<78&&pilotMode==MODE_MASTER){ notamHadValue=notamCode.length()>0; keypadMode=KP_NOTAM; keypadBuffer=notamCode.length()>0?notamCode.substring(1):""; drawKeypad(); return; }
     if(ty>164&&tx>40&&tx<280&&pilotMode==MODE_MASTER){
       if(landState==LAND_WAIT_ACK){ sendAck("landing_ack"); ackPending=false; buzzPhase=0; landState=LAND_COUNTDOWN; drawCommand(); buzz(880,150); }
       else if(landState==LAND_COUNTDOWN){ landDonePressAt=millis(); landDonePressed=true; }
@@ -1032,6 +1105,7 @@ void handleButtons(){
     if(currentScreen==SCR_NAME_INPUT&&kbTarget=="rename_mode"){ currentScreen=SCR_MODE_SELECT; drawModeSelect(); return; }
     if(currentScreen==SCR_WIFI_PASS){ currentScreen=SCR_WIFI_SCAN; drawWifiList(); return; }
     if(currentScreen==SCR_FOLLOWER_CODE){ pilotMode=MODE_NONE; currentScreen=SCR_MODE_SELECT; drawModeSelect(); return; }
+    if(currentScreen==SCR_TURNPOINT_CONFIRM){ currentScreen=SCR_IDLE; drawIdle(); return; }
     if(currentScreen==SCR_NAME_INPUT||currentScreen==SCR_WIFI_SCAN) return;
     brightnessLevel=(brightnessLevel+1)%3;
     M5.Display.setBrightness(BRIGHT_VAL[brightnessLevel]); buzz(1000,50);
@@ -1110,6 +1184,7 @@ void loop(){
   // 閒置自動調暗
   if((currentScreen==SCR_IDLE||currentScreen==SCR_COMMAND)&&!screenDimmed&&now-lastActivity>IDLE_DIM_MS){ M5.Display.setBrightness(30); screenDimmed=true; }
   if(keypadMode==KP_NOTAM){ if(M5.Touch.getCount()){auto t=M5.Touch.getDetail(0);if(t.wasPressed())handleKeypadTouch2(t.x,t.y);} }
+  else if(keypadMode==KP_TURNPOINT){ if(M5.Touch.getCount()){auto t=M5.Touch.getDetail(0);if(t.wasPressed())handleMinuteKeypadTouch(t.x,t.y);} }
   else if(currentScreen==SCR_NAME_INPUT||currentScreen==SCR_WIFI_PASS||currentScreen==SCR_FOLLOWER_CODE){ if(M5.Touch.getCount()){auto t=M5.Touch.getDetail(0);if(t.wasPressed())handleKeyboardTouch(t.x,t.y);} }
   else if(currentScreen==SCR_WIFI_SCAN){ if(M5.Touch.getCount()){auto t=M5.Touch.getDetail(0);if(t.wasPressed())handleWifiListTouch(t.x,t.y);} }
   else { handleTouch(); if(landBtnPressed) checkLandBtnHold(); if(landDonePressed) checkLandDoneHold(); }

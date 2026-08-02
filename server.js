@@ -409,6 +409,15 @@ wss.on('connection',ws=>{
         break;
       }
 
+      case 'pilot_turnpoint':{
+        const pilot=pilots.get(conn.clientId);
+        if(!pilot) return;
+        pilot.turnpoint={minutes:msg.minutes,viaNotam:!!msg.viaNotam,ts:Date.now()};
+        toTower({type:'pilots_update',pilots:pilotSnap()});
+        toTower({type:'pilot_turnpoint',pilotName:pilot.name,clientId:conn.clientId,minutes:msg.minutes,viaNotam:!!msg.viaNotam});
+        break;
+      }
+
       case 'pilot_land_report':{
         const pilot=pilots.get(conn.clientId);
         if(!pilot) return;

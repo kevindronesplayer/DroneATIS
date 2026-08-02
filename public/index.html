@@ -42,7 +42,8 @@ body{font-family:-apple-system,'Noto Sans TC',sans-serif;background:var(--bg);co
 .pilot-name{font-size:26px;font-weight:600;display:flex;align-items:center;gap:6px;}
 .grp-badge{font-size:26px;padding:1px 6px;border-radius:99px;background:var(--sf3);color:var(--tx2);}
 .pilot-sub{font-size:19px;color:var(--tx2);margin-top:1px;}
-.ack-tag{font-size:26px;font-weight:700;padding:2px 7px;border-radius:99px;margin-left:auto;flex-shrink:0;}
+.tag-row{display:flex;gap:6px;margin-left:auto;flex-shrink:0;}
+.ack-tag{font-size:26px;font-weight:700;padding:2px 7px;border-radius:99px;flex-shrink:0;}
 .ack-tag.pending{background:var(--am);color:#000;}
 .ack-tag.done{background:var(--gr);color:#000;}
 .ack-tag.takeoff{background:#1a3d2e;color:var(--gr);border:1px solid var(--gr);}
@@ -96,8 +97,6 @@ body{font-family:-apple-system,'Noto Sans TC',sans-serif;background:var(--bg);co
 .cmd-btn{background:var(--sf2);border:1px solid var(--bd);color:var(--tx);border-radius:var(--rs);padding:14px 3px;font-size:14px;letter-spacing:-.3px;font-weight:600;cursor:pointer;font-family:inherit;text-align:center;white-space:nowrap;}
 .cmd-btn:active{opacity:.7;}
 .cmd-btn.active{border-color:var(--ac);background:var(--sf3);color:var(--ac);}
-.cmd-btn.danger{border-color:var(--rd);color:var(--rd);}
-.cmd-btn.danger.active{background:rgba(255,61,87,.15);border-color:var(--rd);color:var(--rd);}
 
 /* GPS 位置按鈕 */
 .gps-btn{background:none;border:none;padding:4px;cursor:pointer;opacity:.5;flex-shrink:0;}
@@ -366,6 +365,9 @@ function handle(msg){
     showNotamAlert(msg.pilotName, msg.notam, msg.clientId);
     renderPilots();
   }
+  else if(msg.type==='pilot_turnpoint'){
+    showTurnpointAlert(msg.pilotName, msg.minutes, msg.viaNotam, msg.clientId);
+  }
   else if(msg.type==='pilot_land_report'){
     // 直接更新本地 pilots 的狀態，不等 pilots_update
     const lp=pilots.find(x=>x.clientId===msg.clientId);
@@ -408,25 +410,35 @@ function updatePilotStatus(p){
       folEl.remove();
     }
   }
-  // 更新回應標籤
+  // 更新回應標籤 / 轉點標籤
+  const tagRow=card.querySelector('.tag-row');
   const ackInfo=ACK_MAP[p.ackStatus]||null;
-  const existTag=card.querySelector('.ack-tag');
+  const existAckTag=card.querySelector('[data-role="ack"]');
   if(ackInfo){
-    if(existTag){
-      existTag.className='ack-tag '+ackInfo[0];
-      existTag.textContent=ackInfo[1];
-    } else {
-      // 新增標籤（插入到 pilot-top 裡 gps-btn 之前）
+    if(existAckTag){
+      existAckTag.className='ack-tag '+ackInfo[0];
+      existAckTag.textContent=ackInfo[1];
+    } else if(tagRow){
       const tag=document.createElement('span');
       tag.className='ack-tag '+ackInfo[0];
+      tag.dataset.role='ack';
       tag.textContent=ackInfo[1];
-      const gpsBtn=card.querySelector('.gps-btn');
-      if(gpsBtn) gpsBtn.before(tag);
-      else card.querySelector('.pilot-top').appendChild(tag);
+      tagRow.appendChild(tag);
     }
-  } else {
-    if(existTag) existTag.remove();
-  }
+  } else if(existAckTag) existAckTag.remove();
+  const tpInfo=p.turnpoint?(p.turnpoint.viaNotam?`公告轉點 約${p.turnpoint.minutes}分`:`轉點中 約${p.turnpoint.minutes}分`):null;
+  const existTpTag=card.querySelector('[data-role="tp"]');
+  if(tpInfo){
+    if(existTpTag){
+      existTpTag.textContent=tpInfo;
+    } else if(tagRow){
+      const tag=document.createElement('span');
+      tag.className='ack-tag land';
+      tag.dataset.role='tp';
+      tag.textContent=tpInfo;
+      tagRow.prepend(tag);
+    }
+  } else if(existTpTag) existTpTag.remove();
   // 更新待回應邊框
   card.classList.toggle('ack-pending',!!p.ackPending);
   // 更新 wifi badge
@@ -525,7 +537,7 @@ function buildCmdSelect(p){
 }
 function buildCmdButtons(p){
   return `<div class="cmd-btn-grid">
-      ${STATUSES.map(s=>`<button class="cmd-btn ${p.status===s?'active':''} ${s==='馬上降落'?'danger':''}" data-cid="${p.clientId}" data-status="${s}">${s}</button>`).join('')}
+      ${STATUSES.map(s=>`<button class="cmd-btn ${p.status===s?'active':''}" data-cid="${p.clientId}" data-status="${s}">${s}</button>`).join('')}
     </div>`;
 }
 
@@ -533,6 +545,7 @@ function pilotCardHTML(p){
   const grp=groups.find(g=>g.groupId===p.groupId);
   const col=avatarColor(p.name);
   const ackInfo=ACK_MAP[p.ackStatus]||null;
+  const tpInfo=p.turnpoint?(p.turnpoint.viaNotam?`公告轉點 約${p.turnpoint.minutes}分`:`轉點中 約${p.turnpoint.minutes}分`):null;
   const gpsActive=p.gps===true&&p.lat&&p.lng;
 
   // 分類下拉
@@ -550,7 +563,10 @@ function pilotCardHTML(p){
         <div class="pilot-sub">${p.status||'開機預備'} · 電量 ${p.battery??'—'}%</div>
         ${(p.followers&&p.followers.length>0)?`<div class="followers-line" style="font-size:13px;color:var(--ac);margin-top:2px">👥 跟隨: ${p.followers.map(f=>f.name).join(', ')}</div>`:''}
       </div>
-      ${ackInfo?`<span class="ack-tag ${ackInfo[0]}">${ackInfo[1]}</span>`:''}
+      <div class="tag-row">
+        ${tpInfo?`<span class="ack-tag land" data-role="tp">${tpInfo}</span>`:''}
+        ${ackInfo?`<span class="ack-tag ${ackInfo[0]}" data-role="ack">${ackInfo[1]}</span>`:''}
+      </div>
       <button class="gps-btn ${gpsActive?'active':''}" data-cid="${p.clientId}" title="查看位置">
         <svg viewBox="0 0 24 24" fill="${gpsActive?'var(--gr)':'var(--tx2)'}"><path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5c-1.38 0-2.5-1.12-2.5-2.5s1.12-2.5 2.5-2.5 2.5 1.12 2.5 2.5-1.12 2.5-2.5 2.5z"/></svg>
       </button>
@@ -902,6 +918,15 @@ function showNotamAlert(name, notam, cid){
   const el=document.createElement('div');
   el.style.cssText='position:fixed;top:60px;left:50%;transform:translateX(-50%);background:var(--am);color:#000;padding:12px 18px;border-radius:12px;z-index:400;font-size:14px;font-weight:600;text-align:center;min-width:200px;cursor:pointer;';
   el.innerHTML=`📢 ${name} 更新飛航公告<br><span style="font-size:16px">${notam}</span>`;
+  el.onclick=()=>el.remove();
+  document.body.appendChild(el);
+  setTimeout(()=>{if(el.parentNode)el.remove();},8000);
+}
+
+function showTurnpointAlert(name, minutes, viaNotam, cid){
+  const el=document.createElement('div');
+  el.style.cssText='position:fixed;top:60px;left:50%;transform:translateX(-50%);background:var(--am);color:#000;padding:12px 18px;border-radius:12px;z-index:400;font-size:14px;font-weight:600;text-align:center;min-width:200px;cursor:pointer;';
+  el.innerHTML=`🔄 ${name} ${viaNotam?'更新公告後轉點':'回報轉點'}<br><span style="font-size:16px">約 ${minutes} 分鐘</span>`;
   el.onclick=()=>el.remove();
   document.body.appendChild(el);
   setTimeout(()=>{if(el.parentNode)el.remove();},8000);
