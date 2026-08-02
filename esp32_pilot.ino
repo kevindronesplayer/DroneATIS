@@ -242,6 +242,10 @@ void drawKeyboard(){
     M5.Display.setTextColor(CLR_WHITE);
     M5.Display.drawString("CLR",83,170);
     M5.Display.drawString("OK",237,170);
+    M5.Display.fillRoundRect(10,204,300,28,8,CLR_SURFACE);
+    M5.Display.drawRoundRect(10,204,300,28,8,CLR_GRAY);
+    fXs(); M5.Display.setTextDatum(middle_center); M5.Display.setTextColor(CLR_GRAY);
+    M5.Display.drawString("‹ 返回選擇模式",160,218);
     return;
   }
 
@@ -288,6 +292,7 @@ void showKbError(String msg){
 }
 
 void onKeyboardConfirm();
+void drawModeSelect();
 
 void handleKeyboardTouch(int tx,int ty){
   if(kbTarget=="follower"){
@@ -300,7 +305,9 @@ void handleKeyboardTouch(int tx,int ty){
     if(ty>=144&&ty<=196){
       if(tx<164){ kbBuffer=""; drawKeyboard(); }
       else { if(kbBuffer.length()==4) onKeyboardConfirm(); else showKbError("請輸入4碼序號"); }
+      return;
     }
+    if(ty>=204&&ty<=232){ pilotMode=MODE_NONE; currentScreen=SCR_MODE_SELECT; drawModeSelect(); return; }
     return;
   }
   String rows[4];
@@ -571,16 +578,13 @@ void webSocketEvent(WStype_t wsType, uint8_t* payload, size_t length){
       else if(type=="command"||type=="follower_sync"){
         currentStatus=doc["status"].as<String>();
         bool immediateLand=doc["immediate"]|false;
-        int landMinutes=doc["minutes"]|1;
         JsonVariant lt=doc["landingTime"];
         landingReason="";
         if(immediateLand){
-          // 馬上降落／幾分鐘後有機會：以飛手裝置自己的時鐘，從收到指令起算倒數指定分鐘數，避免與塔台時鐘不同步
-          if(landMinutes<1) landMinutes=1;
-          int total=(getNowTotalSecs()+landMinutes*60)%86400;
+          // 馬上降落：以飛手裝置自己的時鐘，從收到指令起算倒數1分鐘，避免與塔台時鐘不同步
+          int total=(getNowTotalSecs()+60)%86400;
           char buf[5]; sprintf(buf,"%02d%02d",total/3600,(total/60)%60);
           landingTimeStr=String(buf);
-          landingReason=doc["reason"]|"";
         }
         else if(lt.isNull()||lt.as<String>()=="null"||lt.as<String>()=="") landingTimeStr="";
         else {
@@ -625,7 +629,7 @@ void webSocketEvent(WStype_t wsType, uint8_t* payload, size_t length){
       else if(type=="follower_ack_sync"){
         String ackType=doc["ackType"]|"ack";
         Serial.println("[FOLLOWER] ack_sync received, ackType="+ackType);
-        if(ackType=="ack"||ackType=="takeoff"){ landState=LAND_NONE; lastMessage=""; currentScreen=SCR_IDLE; drawIdle(); }
+        if(ackType=="ack"||ackType=="takeoff"){ landState=LAND_NONE; currentScreen=SCR_IDLE; drawIdle(); }
         else if(ackType=="landing_ack"){ landState=LAND_COUNTDOWN; drawCommand(); }
         else if(ackType=="landing_done"){ landState=LAND_NONE; currentScreen=SCR_IDLE; drawIdle(); }
       }
@@ -721,6 +725,11 @@ void drawIdle(){
   if(groupName.length()>0){
     fXs(); M5.Display.setTextDatum(middle_left); M5.Display.setTextColor(CLR_ACCENT);
     M5.Display.drawString("["+groupName+"]",8,96);
+  }
+
+  if(lastMessage.length()>0){
+    fXs(); M5.Display.setTextDatum(middle_center); M5.Display.setTextColor(CLR_WHITE);
+    M5.Display.drawString("訊息: "+lastMessage,160,114);
   }
 
   uint16_t sc=CLR_WHITE;
@@ -1003,7 +1012,7 @@ void handleTouch(){
     if(ty>164&&tx>40&&tx<280&&pilotMode==MODE_MASTER){
       if(landState==LAND_WAIT_ACK){ sendAck("landing_ack"); ackPending=false; buzzPhase=0; landState=LAND_COUNTDOWN; drawCommand(); buzz(880,150); }
       else if(landState==LAND_COUNTDOWN){ landDonePressAt=millis(); landDonePressed=true; }
-      else { sendAck(currentStatus=="可以起飛"?"takeoff":"ack"); ackPending=false; buzzPhase=0; lastMessage=""; currentScreen=SCR_IDLE; drawIdle(); }
+      else { sendAck(currentStatus=="可以起飛"?"takeoff":"ack"); ackPending=false; buzzPhase=0; currentScreen=SCR_IDLE; drawIdle(); }
     }
   }
   else if(currentScreen==SCR_END){
@@ -1022,7 +1031,8 @@ void handleButtons(){
     if(currentScreen==SCR_NAME_INPUT&&kbTarget=="rename"){ currentScreen=SCR_IDLE; drawIdle(); return; }
     if(currentScreen==SCR_NAME_INPUT&&kbTarget=="rename_mode"){ currentScreen=SCR_MODE_SELECT; drawModeSelect(); return; }
     if(currentScreen==SCR_WIFI_PASS){ currentScreen=SCR_WIFI_SCAN; drawWifiList(); return; }
-    if(currentScreen==SCR_NAME_INPUT||currentScreen==SCR_WIFI_SCAN||currentScreen==SCR_FOLLOWER_CODE) return;
+    if(currentScreen==SCR_FOLLOWER_CODE){ pilotMode=MODE_NONE; currentScreen=SCR_MODE_SELECT; drawModeSelect(); return; }
+    if(currentScreen==SCR_NAME_INPUT||currentScreen==SCR_WIFI_SCAN) return;
     brightnessLevel=(brightnessLevel+1)%3;
     M5.Display.setBrightness(BRIGHT_VAL[brightnessLevel]); buzz(1000,50);
     if(currentScreen==SCR_IDLE) drawIdle();

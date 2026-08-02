@@ -92,8 +92,8 @@ body{font-family:-apple-system,'Noto Sans TC',sans-serif;background:var(--bg);co
 .btn-land-cancel{background:var(--sf3);border:none;color:var(--tx2);border-radius:var(--rs);padding:14px 18px;font-size:21px;cursor:pointer;font-family:inherit;}
 
 /* 單人模式：指令按鈕 */
-.cmd-btn-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;}
-.cmd-btn{background:var(--sf2);border:1px solid var(--bd);color:var(--tx);border-radius:var(--rs);padding:14px 6px;font-size:19px;font-weight:600;cursor:pointer;font-family:inherit;text-align:center;}
+.cmd-btn-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:6px;}
+.cmd-btn{background:var(--sf2);border:1px solid var(--bd);color:var(--tx);border-radius:var(--rs);padding:14px 3px;font-size:14px;letter-spacing:-.3px;font-weight:600;cursor:pointer;font-family:inherit;text-align:center;white-space:nowrap;}
 .cmd-btn:active{opacity:.7;}
 .cmd-btn.active{border-color:var(--ac);background:var(--sf3);color:var(--ac);}
 .cmd-btn.danger{border-color:var(--rd);color:var(--rd);}
@@ -297,7 +297,7 @@ body{font-family:-apple-system,'Noto Sans TC',sans-serif;background:var(--bg);co
 <div class="land-panel" id="minPanel">
   <div class="land-panel-title">🕐 幾分鐘後有機會</div>
   <input class="land-panel-input" id="minPanelInput" type="text" maxlength="4" inputmode="numeric" placeholder="輸入分鐘數，例如 5">
-  <div style="font-size:19px;color:var(--tx2)">飛手裝置收到後，會從當下開始倒數所輸入的分鐘數</div>
+  <div style="font-size:19px;color:var(--tx2)">會傳送「N分鐘後有機會」訊息，飛手端僅顯示提醒，不會進入降落流程</div>
   <div style="display:flex;gap:10px;margin-top:4px;">
     <button id="btnMinCancel" style="background:var(--sf3);border:none;color:var(--tx2);border-radius:var(--rs);padding:14px 18px;font-size:21px;cursor:pointer;font-family:inherit;">取消</button>
     <button id="btnMinSend" style="flex:1;background:var(--am);color:#000;border:none;border-radius:var(--rs);padding:14px 20px;font-size:26px;font-weight:700;cursor:pointer;font-family:inherit;">發送</button>
@@ -671,16 +671,17 @@ document.getElementById('btnLandCancel').addEventListener('click',()=>{
   document.getElementById('landPanel').classList.remove('show');
 });
 
-// 幾分鐘後有機會 面板事件（飛手端收到後自行倒數，避免塔台/飛手時鐘不同步）
+// 幾分鐘後有機會 面板事件：純文字通知，飛手端只顯示訊息，不進入降落倒數流程
 document.getElementById('btnMinSend').addEventListener('click',()=>{
   const raw=document.getElementById('minPanelInput').value.trim();
   const n=parseInt(raw,10);
   if(!raw||isNaN(n)||n<=0){showToast('請輸入有效的分鐘數');return;}
   if(pendingMinCid){
-    send({type:'tower_command',clientId:pendingMinCid,status:'降落',landingTime:null,immediate:true,minutes:n,reason:'有機會'});
-    showToast(n+' 分鐘後有機會');
+    const msg=n+'分鐘後有機會';
+    send({type:'tower_command',clientId:pendingMinCid,status:msg,landingTime:null,isOther:true});
+    showToast(msg);
     const cid2=pendingMinCid; pendingMinCid=null;
-    setTimeout(()=>markSelected(cid2,'降落'),100);
+    setTimeout(()=>markSelected(cid2,'幾分鐘後有機會'),100);
   }
   document.getElementById('minPanel').classList.remove('show');
 });
