@@ -91,6 +91,14 @@ body{font-family:-apple-system,'Noto Sans TC',sans-serif;background:var(--bg);co
 .btn-land-send{flex:1;background:var(--am);color:#000;border:none;border-radius:var(--rs);padding:14px 20px;font-size:26px;font-weight:700;cursor:pointer;font-family:inherit;}
 .btn-land-cancel{background:var(--sf3);border:none;color:var(--tx2);border-radius:var(--rs);padding:14px 18px;font-size:21px;cursor:pointer;font-family:inherit;}
 
+/* 單人模式：指令按鈕 */
+.cmd-btn-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;}
+.cmd-btn{background:var(--sf2);border:1px solid var(--bd);color:var(--tx);border-radius:var(--rs);padding:14px 6px;font-size:19px;font-weight:600;cursor:pointer;font-family:inherit;text-align:center;}
+.cmd-btn:active{opacity:.7;}
+.cmd-btn.active{border-color:var(--ac);background:var(--sf3);color:var(--ac);}
+.cmd-btn.danger{border-color:var(--rd);color:var(--rd);}
+.cmd-btn.danger.active{background:rgba(255,61,87,.15);border-color:var(--rd);color:var(--rd);}
+
 /* GPS 位置按鈕 */
 .gps-btn{background:none;border:none;padding:4px;cursor:pointer;opacity:.5;flex-shrink:0;}
 .gps-btn.active{opacity:1;}
@@ -242,6 +250,11 @@ body{font-family:-apple-system,'Noto Sans TC',sans-serif;background:var(--bg);co
       <button id="btnSouth" class="btn-tower-type south" onclick="selectTowerType('南塔')"><svg width="16" height="16" viewBox="0 0 512 512" fill="currentColor" style="vertical-align:-3px;margin-right:4px"><path d="M218 0h76c8 0 14 6 14 14s-6 14-14 14h-19v32h60c10 0 18 8 16 18l-16 80h70c12 0 20 9 18 20l-30 150c-2 9-10 16-20 16h-30v160c0 9-7 16-16 16h-90c-9 0-16-7-16-16V344h-30c-10 0-18-7-20-16L131 178c-2-11 6-20 18-20h70l-16-80c-2-10 6-18 16-18h60V60h-19c-8 0-14-6-14-14s6-14 14-14zm-12 90l16 80h68l16-80h-100zm-58 108l24 120h168l24-120H148z"/></svg> 南塔</button>
       <button id="btnNorth" class="btn-tower-type north" onclick="selectTowerType('北塔')"><svg width="16" height="16" viewBox="0 0 512 512" fill="currentColor" style="vertical-align:-3px;margin-right:4px"><path d="M218 0h76c8 0 14 6 14 14s-6 14-14 14h-19v32h60c10 0 18 8 16 18l-16 80h70c12 0 20 9 18 20l-30 150c-2 9-10 16-20 16h-30v160c0 9-7 16-16 16h-90c-9 0-16-7-16-16V344h-30c-10 0-18-7-20-16L131 178c-2-11 6-20 18-20h70l-16-80c-2-10 6-18 16-18h60V60h-19c-8 0-14-6-14-14s6-14 14-14zm-12 90l16 80h68l16-80h-100zm-58 108l24 120h168l24-120H148z"/></svg> 北塔</button>
     </div>
+    <p style="font-size:15px;color:var(--tx2);text-align:center;margin-bottom:8px">操作模式</p>
+    <div style="display:flex;gap:10px;margin-bottom:14px;">
+      <button id="btnModeSingle" class="btn-tower-type" onclick="selectControlMode('single')">👤 單人模式</button>
+      <button id="btnModeMulti" class="btn-tower-type" onclick="selectControlMode('multi')">👥 多人模式</button>
+    </div>
     <div class="modal-actions">
       <button class="btn-cancel" id="btnCancelName">取消</button>
       <button class="btn-confirm" id="btnConfirmName">確認</button>
@@ -280,6 +293,16 @@ body{font-family:-apple-system,'Noto Sans TC',sans-serif;background:var(--bg);co
     <button id="btnLandSend" style="flex:1;background:var(--am);color:#000;border:none;border-radius:var(--rs);padding:14px 20px;font-size:26px;font-weight:700;cursor:pointer;font-family:inherit;">發送</button>
   </div>
 </div>
+<!-- 幾分鐘後降落 底部面板 -->
+<div class="land-panel" id="minPanel">
+  <div class="land-panel-title">🕐 幾分鐘後降落</div>
+  <input class="land-panel-input" id="minPanelInput" type="text" maxlength="4" inputmode="numeric" placeholder="輸入分鐘數，例如 5">
+  <div style="font-size:19px;color:var(--tx2)">系統會自動計算「現在時間 + 分鐘數」作為降落時間</div>
+  <div style="display:flex;gap:10px;margin-top:4px;">
+    <button id="btnMinCancel" style="background:var(--sf3);border:none;color:var(--tx2);border-radius:var(--rs);padding:14px 18px;font-size:21px;cursor:pointer;font-family:inherit;">取消</button>
+    <button id="btnMinSend" style="flex:1;background:var(--am);color:#000;border:none;border-radius:var(--rs);padding:14px 20px;font-size:26px;font-weight:700;cursor:pointer;font-family:inherit;">發送</button>
+  </div>
+</div>
 </div>
 
 
@@ -288,8 +311,9 @@ let ws=null, pilots=[], groups=[], flightLog=[];
 let inputArrows=[];
 let towerName=localStorage.getItem('towerName')||'';
 let towerType=localStorage.getItem('towerType')||'南塔';
+let controlMode=localStorage.getItem('controlMode')||'multi'; // 'single' 單人模式 / 'multi' 多人模式
 
-const STATUSES=['開機預備','可以起飛','連續進場','連續離場','多機進離','降落','馬上降落'];
+const STATUSES=['開機預備','可以起飛','連續進場','連續離場','多機進離','降落','分鐘後降落','馬上降落','其他'];
 
 const ACK_MAP={
   'pending':['pending','等待回應'],
@@ -364,6 +388,7 @@ function updatePilotStatus(p){
   // 更新下拉選單顯示的狀態（不影響使用者正在選的）
   const sel=card.querySelector('.cmd-select');
   if(sel&&document.activeElement!==sel) sel.value=p.status||'開機預備';
+  card.querySelectorAll('.cmd-btn').forEach(b=>b.classList.toggle('active',b.dataset.status===(p.status||'開機預備')));
   // 更新跟隨者名單與飛手名字
   const nameEl=card.querySelector('.pilot-name');
   if(nameEl) nameEl.textContent=p.name;
@@ -430,14 +455,12 @@ function renderPilots(){
   el.innerHTML=html;
 
   // 事件綁定
-  el.querySelectorAll('.cmd-select').forEach(sel=>{
-    sel.addEventListener('change',()=>{
-      const cid=sel.dataset.cid;
-
-    });
-  });
   el.querySelectorAll('.btn-send').forEach(btn=>{
     btn.addEventListener('click',()=>doSend(btn.dataset.cid));
+  });
+  // 單人模式：指令按鈕
+  el.querySelectorAll('.cmd-btn').forEach(btn=>{
+    btn.addEventListener('click',()=>handleStatusAction(btn.dataset.cid,btn.dataset.status));
   });
   // 訊息發送
   el.querySelectorAll('.btn-msg-send').forEach(btn=>{
@@ -492,6 +515,20 @@ function renderPilots(){
   });
 }
 
+function buildCmdSelect(p){
+  return `<div class="cmd-row">
+      <select class="cmd-select" data-cid="${p.clientId}">
+        ${STATUSES.map(s=>`<option value="${s}" ${p.status===s?'selected':''}>${s}</option>`).join('')}
+      </select>
+      <button class="btn-send" data-cid="${p.clientId}">發送</button>
+    </div>`;
+}
+function buildCmdButtons(p){
+  return `<div class="cmd-btn-grid">
+      ${STATUSES.map(s=>`<button class="cmd-btn ${p.status===s?'active':''} ${s==='馬上降落'?'danger':''}" data-cid="${p.clientId}" data-status="${s}">${s}</button>`).join('')}
+    </div>`;
+}
+
 function pilotCardHTML(p){
   const grp=groups.find(g=>g.groupId===p.groupId);
   const col=avatarColor(p.name);
@@ -518,12 +555,7 @@ function pilotCardHTML(p){
         <svg viewBox="0 0 24 24" fill="${gpsActive?'var(--gr)':'var(--tx2)'}"><path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5c-1.38 0-2.5-1.12-2.5-2.5s1.12-2.5 2.5-2.5 2.5 1.12 2.5 2.5-1.12 2.5-2.5 2.5z"/></svg>
       </button>
     </div>
-    <div class="cmd-row">
-      <select class="cmd-select" data-cid="${p.clientId}">
-        ${STATUSES.map(s=>`<option value="${s}" ${p.status===s?'selected':''}>${s}</option>`).join('')}
-      </select>
-      <button class="btn-send" data-cid="${p.clientId}">發送</button>
-    </div>
+    ${controlMode==='single'?buildCmdButtons(p):buildCmdSelect(p)}
     <div class="msg-row">
       <input class="msg-inline-input" id="mi_${p.clientId}" type="text" placeholder="輸入訊息給飛手…" maxlength="50">
       <button class="btn-msg-send" data-cid="${p.clientId}">✈</button>
@@ -551,13 +583,18 @@ function pilotCardHTML(p){
 
 let pendingLandCid=null;
 let pendingOtherCid=null;
+let pendingMinCid=null;
 
-function doSend(cid){
-  const card=document.getElementById('pc_'+cid);
-  if(!card) return;
-  const sel=card.querySelector('.cmd-select');
-  let status=sel.value;
+function markSelected(cid,status){
+  const sel=document.querySelector('#pc_'+cid+' .cmd-select');
+  if(sel) sel.value=status;
+  document.querySelectorAll('#pc_'+cid+' .cmd-btn').forEach(b=>{
+    b.classList.toggle('active',b.dataset.status===status);
+  });
+}
 
+// 統一處理指令動作（下拉選單「發送」與單人模式按鈕共用）
+function handleStatusAction(cid,status){
   // 馬上降落：自動計算當前時間 + 1 分鐘
   if(status==='馬上降落'){
     const now=new Date();
@@ -567,6 +604,16 @@ function doSend(cid){
     const landingTime=hh+':'+mm;
     send({type:'tower_command',clientId:cid,status:'降落',landingTime});
     showToast('馬上降落 → '+landingTime);
+    markSelected(cid,status);
+    return;
+  }
+
+  // ○分鐘後降落：彈出底部面板輸入分鐘數
+  if(status==='分鐘後降落'){
+    pendingMinCid=cid;
+    document.getElementById('minPanelInput').value='';
+    document.getElementById('minPanel').classList.add('show');
+    setTimeout(()=>document.getElementById('minPanelInput').focus(),100);
     return;
   }
 
@@ -579,12 +626,26 @@ function doSend(cid){
     return;
   }
 
-  console.log('doSend',cid,status);
+  if(status==='其他'){
+    // 彈出底部面板輸入自訂義訊息
+    pendingOtherCid=cid;
+    document.getElementById('otherPanelInput').value='';
+    document.getElementById('otherPanel').classList.add('show');
+    setTimeout(()=>document.getElementById('otherPanelInput').focus(),100);
+    return;
+  }
+
   send({type:'tower_command',clientId:cid,status,landingTime:null});
   showToast(`已發送：${status}`);
-  // 發送後保持下拉選單選項不變
-  const selAfter=document.querySelector('#pc_'+cid+' .cmd-select');
-  if(selAfter) selAfter.value=status;
+  markSelected(cid,status);
+}
+
+function doSend(cid){
+  const card=document.getElementById('pc_'+cid);
+  if(!card) return;
+  const sel=card.querySelector('.cmd-select');
+  if(!sel) return;
+  handleStatusAction(cid,sel.value);
 }
 
 // 降落面板事件
@@ -606,16 +667,36 @@ document.getElementById('btnLandSend').addEventListener('click',()=>{
     send({type:'tower_command',clientId:pendingLandCid,status:'降落',landingTime:val});
     showToast('降落指令已發送：'+val);
     const cid2=pendingLandCid; pendingLandCid=null;
-    setTimeout(()=>{
-      const s=document.querySelector('#pc_'+cid2+' .cmd-select');
-      if(s) s.value='降落';
-    },100);
+    setTimeout(()=>markSelected(cid2,'降落'),100);
   }
   document.getElementById('landPanel').classList.remove('show');
 });
 document.getElementById('btnLandCancel').addEventListener('click',()=>{
   pendingLandCid=null;
   document.getElementById('landPanel').classList.remove('show');
+});
+
+// ○分鐘後降落面板事件
+document.getElementById('btnMinSend').addEventListener('click',()=>{
+  const raw=document.getElementById('minPanelInput').value.trim();
+  const n=parseInt(raw,10);
+  if(!raw||isNaN(n)||n<=0){showToast('請輸入有效的分鐘數');return;}
+  const now=new Date();
+  now.setMinutes(now.getMinutes()+n);
+  const hh=String(now.getHours()).padStart(2,'0');
+  const mm=String(now.getMinutes()).padStart(2,'0');
+  const landingTime=hh+':'+mm;
+  if(pendingMinCid){
+    send({type:'tower_command',clientId:pendingMinCid,status:'降落',landingTime});
+    showToast(n+' 分鐘後降落 → '+landingTime);
+    const cid2=pendingMinCid; pendingMinCid=null;
+    setTimeout(()=>markSelected(cid2,'降落'),100);
+  }
+  document.getElementById('minPanel').classList.remove('show');
+});
+document.getElementById('btnMinCancel').addEventListener('click',()=>{
+  pendingMinCid=null;
+  document.getElementById('minPanel').classList.remove('show');
 });
 
 // 其他面板事件
@@ -760,15 +841,19 @@ document.getElementById('btnMyName').addEventListener('click',()=>{
   document.getElementById('nameModal').classList.add('show');
   // 初始化選中狀態
   selectTowerType(towerType,false);
+  selectControlMode(controlMode,false);
 });
 document.getElementById('btnCancelName').addEventListener('click',()=>document.getElementById('nameModal').classList.remove('show'));
 document.getElementById('btnConfirmName').addEventListener('click',()=>{
   towerName=document.getElementById('nameInput').value.trim()||'塔台';
   localStorage.setItem('towerName',towerName);
   localStorage.setItem('towerType',towerType);
+  localStorage.setItem('controlMode',controlMode);
   updateNameBtn();
   // 重新連線以更新 towerType
   if(ws&&ws.readyState===1) ws.send(JSON.stringify({type:'tower_hello',towerName,towerType}));
+  // 模式可能改變，重繪飛手列表
+  renderPilots();
   document.getElementById('nameModal').classList.remove('show');
 });
 function selectTowerType(type, save=true){
@@ -779,6 +864,13 @@ function selectTowerType(type, save=true){
     const match=(isSouth&&type==='南塔')||(isNorth&&type==='北塔');
     b.classList.toggle('selected',match);
   });
+}
+function selectControlMode(mode, save=true){
+  controlMode=mode;
+  const sBtn=document.getElementById('btnModeSingle');
+  const mBtn=document.getElementById('btnModeMulti');
+  if(sBtn) sBtn.classList.toggle('selected',mode==='single');
+  if(mBtn) mBtn.classList.toggle('selected',mode==='multi');
 }
 function updateNameBtn(){
   document.getElementById('btnMyName').textContent=(towerName||'設定名稱')+' · '+(towerType||'南塔');
@@ -858,7 +950,11 @@ function showToast(msg){const t=document.getElementById('toast');t.textContent=m
 const ACLRS=[{bg:'#1a3a5c',fg:'#5bb8ff'},{bg:'#1a3d2e',fg:'#4cde8a'},{bg:'#3d1a1a',fg:'#ff7070'},{bg:'#2d2a0f',fg:'#ffd35a'},{bg:'#2a1a3d',fg:'#b47dff'}];
 function avatarColor(n){return ACLRS[n.charCodeAt(0)%ACLRS.length];}
 
-if(!towerName)document.getElementById('nameModal').classList.add('show');
+if(!towerName){
+  document.getElementById('nameModal').classList.add('show');
+  selectTowerType(towerType,false);
+  selectControlMode(controlMode,false);
+}
 connect();updateNameBtn();
 </script>
 </body>
