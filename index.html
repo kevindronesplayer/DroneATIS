@@ -293,11 +293,11 @@ body{font-family:-apple-system,'Noto Sans TC',sans-serif;background:var(--bg);co
     <button id="btnLandSend" style="flex:1;background:var(--am);color:#000;border:none;border-radius:var(--rs);padding:14px 20px;font-size:26px;font-weight:700;cursor:pointer;font-family:inherit;">發送</button>
   </div>
 </div>
-<!-- 幾分鐘後降落 底部面板 -->
+<!-- 幾分鐘後有機會 底部面板 -->
 <div class="land-panel" id="minPanel">
-  <div class="land-panel-title">🕐 幾分鐘後降落</div>
+  <div class="land-panel-title">🕐 幾分鐘後有機會</div>
   <input class="land-panel-input" id="minPanelInput" type="text" maxlength="4" inputmode="numeric" placeholder="輸入分鐘數，例如 5">
-  <div style="font-size:19px;color:var(--tx2)">系統會自動計算「現在時間 + 分鐘數」作為降落時間</div>
+  <div style="font-size:19px;color:var(--tx2)">飛手裝置收到後，會從當下開始倒數所輸入的分鐘數</div>
   <div style="display:flex;gap:10px;margin-top:4px;">
     <button id="btnMinCancel" style="background:var(--sf3);border:none;color:var(--tx2);border-radius:var(--rs);padding:14px 18px;font-size:21px;cursor:pointer;font-family:inherit;">取消</button>
     <button id="btnMinSend" style="flex:1;background:var(--am);color:#000;border:none;border-radius:var(--rs);padding:14px 20px;font-size:26px;font-weight:700;cursor:pointer;font-family:inherit;">發送</button>
@@ -313,7 +313,7 @@ let towerName=localStorage.getItem('towerName')||'';
 let towerType=localStorage.getItem('towerType')||'南塔';
 let controlMode=localStorage.getItem('controlMode')||'multi'; // 'single' 單人模式 / 'multi' 多人模式
 
-const STATUSES=['開機預備','可以起飛','連續進場','連續離場','多機進離','降落','分鐘後降落','馬上降落','其他'];
+const STATUSES=['開機預備','可以起飛','連續進場','連續離場','多機進離','降落','幾分鐘後有機會','馬上降落','其他'];
 
 const ACK_MAP={
   'pending':['pending','等待回應'],
@@ -595,21 +595,16 @@ function markSelected(cid,status){
 
 // 統一處理指令動作（下拉選單「發送」與單人模式按鈕共用）
 function handleStatusAction(cid,status){
-  // 馬上降落：自動計算當前時間 + 1 分鐘
+  // 馬上降落：飛手端收到指令後自行倒數 1 分鐘（避免塔台/飛手時鐘不同步）
   if(status==='馬上降落'){
-    const now=new Date();
-    now.setMinutes(now.getMinutes()+1);
-    const hh=String(now.getHours()).padStart(2,'0');
-    const mm=String(now.getMinutes()).padStart(2,'0');
-    const landingTime=hh+':'+mm;
-    send({type:'tower_command',clientId:cid,status:'降落',landingTime});
-    showToast('馬上降落 → '+landingTime);
+    send({type:'tower_command',clientId:cid,status:'降落',landingTime:null,immediate:true});
+    showToast('馬上降落 → 收到後倒數1分鐘');
     markSelected(cid,status);
     return;
   }
 
-  // ○分鐘後降落：彈出底部面板輸入分鐘數
-  if(status==='分鐘後降落'){
+  // 幾分鐘後有機會：彈出底部面板輸入分鐘數
+  if(status==='幾分鐘後有機會'){
     pendingMinCid=cid;
     document.getElementById('minPanelInput').value='';
     document.getElementById('minPanel').classList.add('show');
@@ -676,19 +671,14 @@ document.getElementById('btnLandCancel').addEventListener('click',()=>{
   document.getElementById('landPanel').classList.remove('show');
 });
 
-// ○分鐘後降落面板事件
+// 幾分鐘後有機會 面板事件（飛手端收到後自行倒數，避免塔台/飛手時鐘不同步）
 document.getElementById('btnMinSend').addEventListener('click',()=>{
   const raw=document.getElementById('minPanelInput').value.trim();
   const n=parseInt(raw,10);
   if(!raw||isNaN(n)||n<=0){showToast('請輸入有效的分鐘數');return;}
-  const now=new Date();
-  now.setMinutes(now.getMinutes()+n);
-  const hh=String(now.getHours()).padStart(2,'0');
-  const mm=String(now.getMinutes()).padStart(2,'0');
-  const landingTime=hh+':'+mm;
   if(pendingMinCid){
-    send({type:'tower_command',clientId:pendingMinCid,status:'降落',landingTime});
-    showToast(n+' 分鐘後降落 → '+landingTime);
+    send({type:'tower_command',clientId:pendingMinCid,status:'降落',landingTime:null,immediate:true,minutes:n,reason:'有機會'});
+    showToast(n+' 分鐘後有機會');
     const cid2=pendingMinCid; pendingMinCid=null;
     setTimeout(()=>markSelected(cid2,'降落'),100);
   }

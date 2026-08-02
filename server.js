@@ -126,12 +126,12 @@ function applyStatus(pilot,status,landingTime){
   pilot.ackDeadline=Date.now()+30000;
 }
 
-function updateGroupStatus(groupId,status,landingTime){
+function updateGroupStatus(groupId,status,landingTime,immediate,minutes,reason){
   const g=groups.get(groupId); if(!g) return;
   g.memberIds.forEach(cid=>{
     const p=pilots.get(cid); if(!p) return;
     applyStatus(p,status,landingTime);
-    toPilot(cid,{type:'command',status,landingTime:landingTime||null,groupName:groupName(groupId)});
+    toPilot(cid,{type:'command',status,landingTime:landingTime||null,immediate:!!immediate,minutes:minutes||1,reason:reason||'',groupName:groupName(groupId)});
   });
   toTower({type:'pilots_update',pilots:pilotSnap()});
 }
@@ -176,14 +176,14 @@ wss.on('connection',ws=>{
       }
 
       case 'tower_command':{
-        const {clientId,landingTime,isOther}=msg;
+        const {clientId,landingTime,isOther,immediate,minutes,reason}=msg;
         const status=isOther?msg.status:msg.status;  // 直接使用，不加前綴
         const pilot=pilots.get(clientId); if(!pilot) return;
-        if(pilot.groupId) updateGroupStatus(pilot.groupId,status,landingTime);
+        if(pilot.groupId) updateGroupStatus(pilot.groupId,status,landingTime,immediate,minutes,reason);
         else{
           applyStatus(pilot,status,landingTime);
-          toPilot(clientId,{type:'command',status,landingTime:landingTime||null,groupName:''});
-          toFollowers(clientId,{type:'follower_sync',status,landingTime:landingTime||null,groupName:''});
+          toPilot(clientId,{type:'command',status,landingTime:landingTime||null,immediate:!!immediate,minutes:minutes||1,reason:reason||'',groupName:''});
+          toFollowers(clientId,{type:'follower_sync',status,landingTime:landingTime||null,immediate:!!immediate,minutes:minutes||1,reason:reason||'',groupName:''});
           toTower({type:'pilots_update',pilots:pilotSnap()});
         }
         break;
