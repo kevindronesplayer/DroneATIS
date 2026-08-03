@@ -59,7 +59,7 @@ int buzzPhase = 0;
 unsigned long rwyNoticeUntil = 0;
 unsigned long lastActivity = 0;
 bool screenDimmed = false;
-const unsigned long IDLE_DIM_MS = 60000;
+const unsigned long IDLE_DIM_MS = 120000;
 
 // 亮度
 int brightnessLevel = 1;
@@ -451,6 +451,11 @@ void drawIdle();
 
 void webSocketEvent(WStype_t wsType, uint8_t* payload, size_t length);
 
+void wakeScreen(){
+  lastActivity=millis();
+  if(screenDimmed){ M5.Display.setBrightness(BRIGHT_VAL[brightnessLevel]); screenDimmed=false; }
+}
+
 void connectWebSocket(){
   drawConnecting("連接塔台...");
   Serial.println("[WS] connectWebSocket() called");
@@ -599,11 +604,13 @@ void webSocketEvent(WStype_t wsType, uint8_t* payload, size_t length){
         groupName=doc["groupName"]|groupName;
         landState=(currentStatus=="降落")?LAND_WAIT_ACK:LAND_NONE;
         if(pilotMode==MODE_MASTER){ ackPending=true; ackReceivedAt=millis(); ackDeadline=millis()+30000; buzzPhase=0; }
+        wakeScreen();
         currentScreen=SCR_COMMAND; drawCommand(); buzz(1000,300);
       }
       else if(type=="message"){
         lastMessage=doc["message"].as<String>(); landState=LAND_NONE;
         if(pilotMode==MODE_MASTER){ ackPending=true; ackReceivedAt=millis(); ackDeadline=millis()+30000; buzzPhase=0; }
+        wakeScreen();
         currentScreen=SCR_COMMAND; drawMessage(); buzz(880,200);
       }
       else if(type=="group_update"){
@@ -988,7 +995,7 @@ void drawMinuteKeypad(){
   M5.Display.setTextDatum(middle_center);
   fXs(); M5.Display.setTextColor(CLR_AMBER); M5.Display.drawString("轉點時間（大約幾分鐘）",160,10);
   String preview=(keypadBuffer.length()>0?keypadBuffer:"__")+" 分鐘";
-  fLg(); M5.Display.setTextColor(CLR_ACCENT); M5.Display.drawString(preview,160,36);
+  fXs(); M5.Display.setTextColor(CLR_ACCENT); M5.Display.drawString(preview,160,36);
   int keys[]={1,2,3,4,5,6,7,8,9,-1,0,-2};
   int kx=10,ky=58,kw=94,kh=40,gap=4;
   for(int i=0;i<12;i++){
