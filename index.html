@@ -120,9 +120,15 @@ body{font-family:-apple-system,'Noto Sans TC',sans-serif;background:var(--bg);co
 /* ── 記錄頁 ── */
 .log-page{padding:14px;padding-bottom:20px;}
 .btn-dl{width:100%;background:var(--gr);color:#000;border:none;border-radius:var(--rs);padding:12px;font-size:26px;font-weight:700;cursor:pointer;font-family:inherit;margin-bottom:14px;}
-.log-table{width:100%;border-collapse:collapse;font-size:20px;}
-.log-table th{background:var(--sf2);color:var(--tx2);padding:7px 8px;text-align:left;font-weight:600;}
-.log-table td{padding:7px 8px;border-bottom:1px solid var(--bd);}
+.comm-card{background:var(--sf);border:1px solid var(--bd);border-radius:var(--r);margin-bottom:14px;overflow:hidden;}
+.comm-card-hdr{background:var(--sf2);padding:10px 14px;font-weight:700;font-size:21px;}
+.comm-line{display:flex;gap:8px;padding:8px 14px;border-bottom:1px solid var(--bd);font-size:18px;align-items:baseline;}
+.comm-line:last-child{border-bottom:none;}
+.comm-time{color:var(--tx2);flex-shrink:0;font-size:15px;width:44px;}
+.comm-dir{flex-shrink:0;font-weight:700;width:52px;font-size:15px;}
+.comm-dir.tower{color:var(--ac);}
+.comm-dir.pilot{color:var(--gr);}
+.comm-text{flex:1;color:var(--tx);word-break:break-word;}
 .tag-to{background:rgba(0,230,118,.15);color:var(--gr);border-radius:4px;padding:2px 5px;font-size:26px;font-weight:700;}
 .tag-ld{background:rgba(255,167,38,.15);color:var(--am);border-radius:4px;padding:2px 5px;font-size:26px;font-weight:700;}
 
@@ -190,14 +196,11 @@ body{font-family:-apple-system,'Noto Sans TC',sans-serif;background:var(--bg);co
     </div>
   </div>
 
-  <!-- 飛行記錄 -->
+  <!-- 飛行記錄：與飛手的對話紀錄 -->
   <div class="page" id="page-log">
     <div class="log-page">
-      <button class="btn-dl" id="btnDownload">⬇ 下載飛行記錄 Excel</button>
-      <table class="log-table">
-        <thead><tr><th>飛手</th><th>飛行紀錄</th><th></th></tr></thead>
-        <tbody id="logBody"><tr><td colspan="5" style="color:var(--tx2);text-align:center;padding:24px">暫無記錄</td></tr></tbody>
-      </table>
+      <button class="btn-dl" id="btnDownload">⬇ 下載飛行記錄</button>
+      <div id="logBody"><div style="color:var(--tx2);text-align:center;padding:24px">暫無記錄</div></div>
     </div>
   </div>
 
@@ -306,7 +309,7 @@ body{font-family:-apple-system,'Noto Sans TC',sans-serif;background:var(--bg);co
 
 
 <script>
-let ws=null, pilots=[], groups=[], flightLog=[];
+let ws=null, pilots=[], groups=[], flightLog=[], commLog=[];
 let inputArrows=[];
 let towerName=localStorage.getItem('towerName')||'';
 let towerType=localStorage.getItem('towerType')||'南塔';
@@ -337,7 +340,13 @@ function handle(msg){
     groups=msg.groups;   // 先設定 groups
     pilots=msg.pilots;
     flightLog=msg.flightLog;
+    commLog=msg.commLog||[];
     renderAll();
+  }
+  else if(msg.type==='comm_log_add'){
+    commLog.push(msg.entry);
+    if(commLog.length>500) commLog.shift();
+    if(document.getElementById('page-log').classList.contains('active')) renderLog();
   }
   else if(msg.type==='pilots_update'){
     pilots=msg.pilots;
@@ -783,37 +792,32 @@ function renderGroups(){
   });
 }
 
+function escapeHtml(s){
+  return String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
 function renderLog(){
-  const tb=document.getElementById('logBody');
-  if(!flightLog.length){
-    tb.innerHTML='<tr><td colspan="3" style="color:var(--tx2);text-align:center;padding:24px">暫無記錄</td></tr>';
+  const el=document.getElementById('logBody');
+  if(!commLog.length){
+    el.innerHTML='<div style="color:var(--tx2);text-align:center;padding:24px">暫無記錄</div>';
     return;
   }
-  // 依飛手分組，配對起降時間
+  // 依飛手分組，依時間順序顯示對話
   const byPilot={};
-  flightLog.forEach(r=>{
-    if(!byPilot[r.pilotName]) byPilot[r.pilotName]={name:r.pilotName,pairs:[],pendingTakeoff:null};
-    if(r.type==='takeoff'){
-      byPilot[r.pilotName].pendingTakeoff=r.time;
-    } else if(r.type==='landing'){
-      const to=byPilot[r.pilotName].pendingTakeoff||'????';
-      byPilot[r.pilotName].pairs.push(to.replace(':','')+'-'+r.time.replace(':',''));
-      byPilot[r.pilotName].pendingTakeoff=null;
-    }
+  commLog.forEach(r=>{
+    if(!byPilot[r.pilotName]) byPilot[r.pilotName]=[];
+    byPilot[r.pilotName].push(r);
   });
-  // 未降落的也列出
-  Object.values(byPilot).forEach(p=>{
-    if(p.pendingTakeoff) p.pairs.push(p.pendingTakeoff.replace(':','')+'- (飛行中)');
-  });
-  tb.innerHTML=Object.values(byPilot).map(p=>
-    `<tr><td style="font-weight:600">${p.name}</td>
-    <td style="font-size:13px;color:var(--tx2)">${p.pairs.join(', ')||'—'}</td>
-    <td><button onclick="copyLog('${p.name}','${p.pairs.join(', ')}')" style="background:var(--sf3);border:1px solid var(--bd);color:var(--tx2);border-radius:6px;padding:4px 10px;font-size:12px;cursor:pointer">複製</button></td>
-    </tr>`
-  ).join('');
-}
-function copyLog(name,txt){
-  navigator.clipboard.writeText(txt).then(()=>showToast(name+' 記錄已複製'));
+  el.innerHTML=Object.keys(byPilot).map(name=>{
+    const lines=byPilot[name].map(r=>
+      `<div class="comm-line">
+        <span class="comm-time">${escapeHtml(r.time)}</span>
+        <span class="comm-dir ${r.dir}">${r.dir==='tower'?'塔台':'飛手'}</span>
+        <span class="comm-text">${escapeHtml(r.text)}</span>
+      </div>`
+    ).join('');
+    return `<div class="comm-card"><div class="comm-card-hdr">${escapeHtml(name)}</div>${lines}</div>`;
+  }).join('');
 }
 
 // ── 新增飛手 ────────────────────────────────────────────────────
@@ -893,6 +897,7 @@ document.querySelectorAll('.tab').forEach(tab=>{
     document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
     tab.classList.add('active');
     document.getElementById('page-'+tab.dataset.page).classList.add('active');
+    if(tab.dataset.page==='log') renderLog();
   });
 });
 

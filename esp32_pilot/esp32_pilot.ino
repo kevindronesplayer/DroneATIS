@@ -23,7 +23,7 @@
 #define GPS_RX_PIN    32   // Core2 PORT.A（外接I2C腳位，這裡改當UART用；訊號1=RXD）
 #define GPS_TX_PIN    33   // Core2 PORT.A（訊號2=TXD）
 #define GPS_BAUD      115200
-#define FW_VERSION    1
+#define FW_VERSION    2
 #define UPDATE_CHECK_URL "https://droneatis-production.up.railway.app/firmware/version.json"
 
 // ── NVS 儲存 ─────────────────────────────────────────────────────────────────
@@ -132,9 +132,9 @@ int    kbMaxLen  = 20;
 #define CLR_DARK    0x10A2
 
 // ── 字型 ──────────────────────────────────────────────────────────────────────
-void fXs(){ M5.Display.setFont(&fonts::efontJA_24); M5.Display.setTextSize(1); }
-void fSm(){ M5.Display.setFont(&fonts::efontJA_24); M5.Display.setTextSize(1); }
-void fLg(){ M5.Display.setFont(&fonts::efontJA_24); M5.Display.setTextSize(2); }
+void fXs(){ M5.Display.setFont(&fonts::efontTW_24); M5.Display.setTextSize(1); }
+void fSm(){ M5.Display.setFont(&fonts::efontTW_24); M5.Display.setTextSize(1); }
+void fLg(){ M5.Display.setFont(&fonts::efontTW_24); M5.Display.setTextSize(2); }
 
 // ── 時間工具 ──────────────────────────────────────────────────────────────────
 String getNowTime(){
@@ -887,7 +887,7 @@ void drawIdle(){
     M5.Display.setTextColor(CLR_GRAY); M5.Display.drawString("關機",288,231);
   } else {
     M5.Display.fillRect(0,218,320,20,CLR_BG);
-    M5.Display.setFont(&fonts::efontJA_24); M5.Display.setTextSize(1);
+    M5.Display.setFont(&fonts::efontTW_24); M5.Display.setTextSize(1);
     M5.Display.setTextDatum(middle_center);
     int segW=320/5; uint16_t lblGray=0xBDF7;
     M5.Display.setTextColor(lblGray);
@@ -1015,7 +1015,7 @@ void updateClock(){
   if(currentScreen==SCR_COMMAND&&(landState==LAND_WAIT_ACK||landState==LAND_COUNTDOWN)&&landingTimeStr.length()>=4){
     int diff=landTimeSecs()-getNowTotalSecs();
     M5.Display.fillRect(162,110,158,28,CLR_BG);
-    M5.Display.setFont(&fonts::efontJA_24); M5.Display.setTextSize(1); M5.Display.setTextDatum(middle_left);
+    M5.Display.setFont(&fonts::efontTW_24); M5.Display.setTextSize(1); M5.Display.setTextDatum(middle_left);
     if(diff>0){ char buf[16]; sprintf(buf,"還有 %02d:%02d",diff/60,diff%60); M5.Display.setTextColor(diff<60?CLR_RED:CLR_GREEN); M5.Display.drawString(buf,165,122); }
     else { M5.Display.setTextColor(CLR_RED); M5.Display.drawString("降落時間到!",165,122); }
   }
