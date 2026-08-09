@@ -52,7 +52,7 @@ const server = http.createServer((req,res)=>{
     res.end(csv); return;
   }
   let fp=path.join(__dirname,'public',req.url==='/'?'index.html':req.url);
-  const mime={'.html':'text/html','.js':'text/javascript','.css':'text/css'};
+  const mime={'.html':'text/html','.js':'text/javascript','.css':'text/css','.json':'application/json','.bin':'application/octet-stream'};
   fs.readFile(fp,(err,data)=>{
     if(err){res.writeHead(404);res.end('Not found');return;}
     res.writeHead(200,{'Content-Type':mime[path.extname(fp)]||'text/plain'});

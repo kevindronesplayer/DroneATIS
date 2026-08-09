@@ -9,6 +9,10 @@
 #include <WebSocketsClient.h>
 #include <ArduinoJson.h>
 #include <Preferences.h>
+#include <TinyGPSPlus.h>
+#include <HTTPClient.h>
+#include <HTTPUpdate.h>
+#include <WiFiClientSecure.h>
 #include <time.h>
 
 // ── 設定 ────────────────────────────────────────────────────────────────────
@@ -16,6 +20,11 @@
 #define SERVER_PORT   26772
 #define TZ_OFFSET     8
 #define NTP_SERVER    "pool.ntp.org"
+#define GPS_RX_PIN    32   // Core2 PORT.A（外接I2C腳位，這裡改當UART用；訊號1=RXD）
+#define GPS_TX_PIN    33   // Core2 PORT.A（訊號2=TXD）
+#define GPS_BAUD      115200
+#define FW_VERSION    1
+#define UPDATE_CHECK_URL "https://droneatis-production.up.railway.app/firmware/version.json"
 
 // ── NVS 儲存 ─────────────────────────────────────────────────────────────────
 Preferences prefs;
@@ -48,6 +57,8 @@ String rwyDir         = "";
 bool   towerConnected = false;
 bool   gpsEnabled     = false;
 bool   gpsFixed       = false;
+TinyGPSPlus gps;
+double gpsLat = 0, gpsLng = 0;
 bool   ackPending     = false;
 unsigned long ackReceivedAt = 0;
 unsigned long ackDeadline   = 0;
@@ -81,11 +92,16 @@ String keypadBuffer   = "";
 bool notamHadValue    = false;   // 開啟公告鍵盤時是否已有舊值（判斷是否為「第二次輸入」）
 int  turnpointSource  = 0;       // 0=無, 1=專屬轉點按鈕, 2=公告二次輸入後詢問
 
+// 韌體更新
+int    pendingFwVersion = 0;
+String pendingFwUrl     = "";
+String pendingFwNotes   = "";
+
 // ── 畫面狀態 ──────────────────────────────────────────────────────────────────
 enum Screen {
   SCR_BOOT, SCR_NAME_INPUT, SCR_WIFI_SCAN, SCR_WIFI_PASS,
   SCR_MODE_SELECT, SCR_FOLLOWER_CODE, SCR_CODE, SCR_IDLE,
-  SCR_COMMAND, SCR_END, SCR_CHARGING, SCR_TURNPOINT_CONFIRM
+  SCR_COMMAND, SCR_END, SCR_CHARGING, SCR_TURNPOINT_CONFIRM, SCR_POWEROFF_CONFIRM, SCR_WIFI_CHANGE_CONFIRM, SCR_UPDATE_CONFIRM
 };
 Screen currentScreen = SCR_BOOT;
 
@@ -213,8 +229,15 @@ void drawKeyboard(){
   M5.Display.setTextDatum(middle_center);
   fXs(); M5.Display.setTextColor(CLR_GRAY);
   M5.Display.drawString(kbHint,160,10);
-  M5.Display.fillRoundRect(6,20,308,28,4,CLR_SURFACE);
-  M5.Display.drawRoundRect(6,20,308,28,4,CLR_ACCENT);
+  bool showBack=(kbTarget=="password");
+  int boxX=showBack?50:6, boxW=showBack?264:308;
+  if(showBack){
+    M5.Display.fillRoundRect(4,20,42,28,4,CLR_SURFACE); M5.Display.drawRoundRect(4,20,42,28,4,CLR_GRAY);
+    fSm(); M5.Display.setTextDatum(middle_center); M5.Display.setTextColor(CLR_WHITE);
+    M5.Display.drawString("<",25,34);
+  }
+  M5.Display.fillRoundRect(boxX,20,boxW,28,4,CLR_SURFACE);
+  M5.Display.drawRoundRect(boxX,20,boxW,28,4,CLR_ACCENT);
   fSm(); M5.Display.setTextColor(CLR_WHITE);
   M5.Display.setTextDatum(middle_left);
   String disp=kbBuffer;
@@ -224,7 +247,7 @@ void drawKeyboard(){
     if(kbBuffer.length()>0) masked+=kbBuffer[kbBuffer.length()-1];
     disp=masked;
   }
-  M5.Display.drawString(disp.length()>0?disp:"_",14,34);
+  M5.Display.drawString(disp.length()>0?disp:"_",boxX+8,34);
 
   if(kbTarget=="follower"){
     int keys[]={1,2,3,4};
@@ -247,7 +270,7 @@ void drawKeyboard(){
     M5.Display.fillRoundRect(10,204,300,28,8,CLR_SURFACE);
     M5.Display.drawRoundRect(10,204,300,28,8,CLR_GRAY);
     fXs(); M5.Display.setTextDatum(middle_center); M5.Display.setTextColor(CLR_GRAY);
-    M5.Display.drawString("‹ 返回選擇模式",160,218);
+    M5.Display.drawString("< 返回選擇模式",160,218);
     return;
   }
 
@@ -297,6 +320,7 @@ void onKeyboardConfirm();
 void drawModeSelect();
 
 void handleKeyboardTouch(int tx,int ty){
+  if(kbTarget=="password"&&tx<46&&ty>=20&&ty<=48){ currentScreen=SCR_WIFI_SCAN; drawWifiList(); return; }
   if(kbTarget=="follower"){
     int keys[]={1,2,3,4};
     int kx=10,ky=60,kw=72,kh=72,gap=6;
@@ -338,7 +362,9 @@ void drawWifiList(){
   M5.Display.fillScreen(CLR_BG);
   fXs(); M5.Display.setTextDatum(middle_center);
   M5.Display.setTextColor(CLR_ACCENT);
-  M5.Display.drawString("選擇 WiFi",160,14);
+  M5.Display.drawString("選擇 WiFi",130,14);
+  M5.Display.fillRoundRect(250,2,66,24,4,CLR_SURFACE); M5.Display.drawRoundRect(250,2,66,24,4,CLR_ACCENT);
+  M5.Display.setTextColor(CLR_ACCENT); M5.Display.drawString("重掃",283,14);
   if(wifiCount==0){ M5.Display.setTextColor(CLR_GRAY); M5.Display.drawString("找不到WiFi，點擊重新掃描",160,120); return; }
   for(int i=0;i<5;i++){
     int idx=wifiScroll+i; if(idx>=wifiCount) break;
@@ -359,6 +385,8 @@ void drawWifiList(){
 }
 
 void handleWifiListTouch(int tx,int ty){
+  if(ty<28&&tx>246){ startWifiScan(); return; }
+  if(wifiCount==0){ startWifiScan(); return; }
   if(ty<32||ty>222) return;
   int i=(ty-32)/38, idx=wifiScroll+i;
   if(idx>=wifiCount) return;
@@ -380,17 +408,83 @@ void startWifiScan(){
 // ── WiFi 連線 ──────────────────────────────────────────────────────────────────
 void drawModeSelect();
 
+String wifiFailReason(){
+  switch(WiFi.status()){
+    case WL_NO_SSID_AVAIL:  return "找不到訊號\n請確認熱點是2.4GHz";
+    case WL_CONNECT_FAILED: return "密碼錯誤或連線被拒絕";
+    case WL_CONNECTION_LOST:return "連線中斷";
+    case WL_DISCONNECTED:   return "逾時無回應\n請確認熱點是2.4GHz";
+    default:                return "連線失敗\n狀態碼"+String((int)WiFi.status());
+  }
+}
+
 void connectWiFiSaved(){
   drawConnecting("WiFi 連線中...");
   WiFi.mode(WIFI_STA); WiFi.setSleep(false);
   WiFi.begin(savedSSID.c_str(), savedPassword.c_str());
-  int t=0; while(WiFi.status()!=WL_CONNECTED&&t<40){ delay(500); t++; }
+  int t=0; while(WiFi.status()!=WL_CONNECTED&&t<50){ delay(500); t++; }
   if(WiFi.status()==WL_CONNECTED){
     configTime(TZ_OFFSET*3600,0,NTP_SERVER);
     drawConnecting("NTP 對時...");
     struct tm ti; int nt=0; while(!getLocalTime(&ti)&&nt<20){delay(500);nt++;}
+    checkForUpdate();
+  } else { drawConnecting(wifiFailReason()); delay(2500); startWifiScan(); }
+}
+
+// ── 韌體更新 ──────────────────────────────────────────────────────────────────
+void drawUpdateConfirm(){
+  currentScreen=SCR_UPDATE_CONFIRM;
+  M5.Display.fillScreen(CLR_BG); M5.Display.setTextDatum(middle_center);
+  fLg(); M5.Display.setTextColor(CLR_ACCENT); M5.Display.drawString("發現新版本",160,74);
+  fSm(); M5.Display.setTextColor(CLR_WHITE); M5.Display.drawString("v"+String(pendingFwVersion),160,104);
+  if(pendingFwNotes.length()>0){ fXs(); M5.Display.setTextColor(CLR_GRAY); M5.Display.drawString(pendingFwNotes,160,128); }
+  fXs(); M5.Display.setTextColor(CLR_GRAY); M5.Display.drawString("是否現在更新？",160,154);
+  M5.Display.fillRoundRect(20,180,130,50,10,CLR_SURFACE); M5.Display.drawRoundRect(20,180,130,50,10,CLR_GRAY);
+  fSm(); M5.Display.setTextColor(CLR_WHITE); M5.Display.drawString("取消",85,205);
+  M5.Display.fillRoundRect(170,180,130,50,10,CLR_ACCENT);
+  M5.Display.setTextColor(CLR_BG); M5.Display.drawString("更新",235,205);
+}
+
+void doFirmwareUpdate(){
+  M5.Display.fillScreen(CLR_BG); M5.Display.setTextDatum(middle_center);
+  fSm(); M5.Display.setTextColor(CLR_ACCENT); M5.Display.drawString("更新中，請勿關機...",160,120);
+  WiFiClientSecure client; client.setInsecure();
+  httpUpdate.rebootOnUpdate(true);
+  t_httpUpdate_return ret=httpUpdate.update(client, pendingFwUrl);
+  if(ret==HTTP_UPDATE_FAILED){
+    fXs(); M5.Display.setTextColor(CLR_RED); M5.Display.drawString("更新失敗，繼續使用目前版本",160,160);
+    delay(2000);
     currentScreen=SCR_MODE_SELECT; drawModeSelect();
-  } else { drawConnecting("連線失敗，重新掃描..."); delay(1500); startWifiScan(); }
+  } else if(ret==HTTP_UPDATE_NO_UPDATES){
+    currentScreen=SCR_MODE_SELECT; drawModeSelect();
+  }
+  // HTTP_UPDATE_OK：裝置會自動重開機，不會執行到這裡
+}
+
+void checkForUpdate(){
+  drawConnecting("檢查更新中...");
+  WiFiClientSecure client; client.setInsecure();
+  HTTPClient http; http.setTimeout(6000);
+  bool ok=false;
+  if(http.begin(client, UPDATE_CHECK_URL)){
+    int code=http.GET();
+    if(code==200){
+      String body=http.getString();
+      StaticJsonDocument<256> doc;
+      if(!deserializeJson(doc,body)){
+        int remoteVer=doc["version"]|0;
+        String url=doc["url"]|"";
+        String notes=doc["notes"]|"";
+        if(remoteVer>FW_VERSION && url.length()>0){
+          pendingFwVersion=remoteVer; pendingFwUrl=url; pendingFwNotes=notes;
+          ok=true;
+        }
+      }
+    }
+    http.end();
+  }
+  if(ok) drawUpdateConfirm();
+  else { currentScreen=SCR_MODE_SELECT; drawModeSelect(); }
 }
 
 // ── 模式選擇 ──────────────────────────────────────────────────────────────────
@@ -509,13 +603,19 @@ void sendFollowerRegister(){
   String o; serializeJson(doc,o); wsClient.sendTXT(o);
 }
 
+void updateGpsReading(){
+  while(Serial2.available()) gps.encode(Serial2.read());
+  gpsFixed = gps.location.isValid() && gps.location.age()<3000;
+  if(gpsFixed){ gpsLat=gps.location.lat(); gpsLng=gps.location.lng(); }
+}
+
 void sendHeartbeat(){
   if(!wsConnected) return;
-  StaticJsonDocument<128> doc;
+  StaticJsonDocument<192> doc;
   doc["type"]="pilot_update"; doc["battery"]=getBattery();
   doc["wifi"]=(WiFi.status()==WL_CONNECTED);
   if(!gpsEnabled) doc["gps"]=false;
-  else if(gpsFixed) doc["gps"]=true;
+  else if(gpsFixed){ doc["gps"]=true; doc["lat"]=gpsLat; doc["lng"]=gpsLng; }
   else doc["gps"]="searching";
   String o; serializeJson(doc,o); wsClient.sendTXT(o);
 }
@@ -681,7 +781,15 @@ void drawConnecting(String msg){
   M5.Display.fillScreen(CLR_BG); M5.Display.setTextDatum(middle_center);
   M5.Display.setFont(nullptr); M5.Display.setTextSize(2);
   M5.Display.setTextColor(CLR_ACCENT); M5.Display.drawString("DroneATIS",160,68);
-  fSm(); M5.Display.setTextColor(CLR_AMBER); M5.Display.drawString(msg,160,118);
+  fSm(); M5.Display.setTextColor(CLR_AMBER);
+  int nl=msg.indexOf('\n');
+  if(nl>=0){
+    M5.Display.drawString(msg.substring(0,nl),160,110);
+    M5.Display.setTextColor(CLR_GRAY);
+    M5.Display.drawString(msg.substring(nl+1),160,140);
+  } else {
+    M5.Display.drawString(msg,160,118);
+  }
 }
 
 void drawCharging(){
@@ -770,24 +878,28 @@ void drawIdle(){
     fSm(); M5.Display.setTextColor(CLR_GRAY); M5.Display.drawString("等待塔台來訊",160,150);
   }
 
-  // 底部三按鍵說明
+  // 底部按鍵說明
   if(pilotMode==MODE_FOLLOWER){
     M5.Display.fillRect(0,222,320,18,CLR_SURFACE);
+    M5.Display.drawFastVLine(256,222,18,0x4228);
     fXs(); M5.Display.setTextDatum(middle_center); M5.Display.setTextColor(CLR_ACCENT);
-    M5.Display.drawString("跟隨模式 · 僅顯示",160,231);
+    M5.Display.drawString("跟隨模式 · 僅顯示",128,231);
+    M5.Display.setTextColor(CLR_GRAY); M5.Display.drawString("關機",288,231);
   } else {
     M5.Display.fillRect(0,218,320,20,CLR_BG);
     M5.Display.setFont(&fonts::efontJA_24); M5.Display.setTextSize(1);
     M5.Display.setTextDatum(middle_center);
-    int segW=320/4; uint16_t lblGray=0xBDF7;
+    int segW=320/5; uint16_t lblGray=0xBDF7;
     M5.Display.setTextColor(lblGray);
-    M5.Display.drawString("亮度:"+String(BRIGHT_LBL[brightnessLevel]),segW/2,225);
+    M5.Display.drawString("亮度",segW/2,225);
     uint16_t gc=!gpsEnabled?lblGray:(!gpsFixed?CLR_WHITE:CLR_GREEN);
     M5.Display.setTextColor(gc); M5.Display.drawString("GPS",segW+segW/2,225);
     M5.Display.setTextColor((currentStatus=="可以起飛")?lblGray:CLR_ACCENT);
     M5.Display.drawString("詢問",segW*2+segW/2,225);
     M5.Display.setTextColor(CLR_ACCENT);
     M5.Display.drawString("轉點",segW*3+segW/2,225);
+    M5.Display.setTextColor(lblGray);
+    M5.Display.drawString("關機",segW*4+segW/2,225);
   }
 }
 
@@ -856,6 +968,37 @@ void drawEndConfirm(){
   M5.Display.setTextColor(CLR_GRAY); M5.Display.drawString("取消",80,218);
   M5.Display.fillRoundRect(170,204,140,28,8,CLR_RED);
   M5.Display.setTextColor(CLR_WHITE); M5.Display.drawString("確定",240,218);
+}
+
+void drawPoweroffConfirm(){
+  currentScreen=SCR_POWEROFF_CONFIRM;
+  M5.Display.fillRect(0,172,320,68,CLR_SURFACE); M5.Display.drawRect(0,172,320,68,CLR_RED);
+  fXs(); M5.Display.setTextDatum(middle_center); M5.Display.setTextColor(CLR_WHITE);
+  M5.Display.drawString("確定關機?",160,190);
+  M5.Display.fillRoundRect(10,204,140,28,8,CLR_SURFACE); M5.Display.drawRoundRect(10,204,140,28,8,CLR_GRAY);
+  M5.Display.setTextColor(CLR_GRAY); M5.Display.drawString("取消",80,218);
+  M5.Display.fillRoundRect(170,204,140,28,8,CLR_RED);
+  M5.Display.setTextColor(CLR_WHITE); M5.Display.drawString("確定",240,218);
+}
+
+void drawWifiChangeConfirm(){
+  currentScreen=SCR_WIFI_CHANGE_CONFIRM;
+  M5.Display.fillRect(0,172,320,68,CLR_SURFACE); M5.Display.drawRect(0,172,320,68,CLR_ACCENT);
+  fXs(); M5.Display.setTextDatum(middle_center); M5.Display.setTextColor(CLR_WHITE);
+  M5.Display.drawString("更換WiFi？",160,182);
+  M5.Display.setTextColor(CLR_GRAY); M5.Display.drawString("目前連線將中斷",160,198);
+  M5.Display.fillRoundRect(10,204,140,28,8,CLR_SURFACE); M5.Display.drawRoundRect(10,204,140,28,8,CLR_GRAY);
+  M5.Display.setTextColor(CLR_GRAY); M5.Display.drawString("取消",80,218);
+  M5.Display.fillRoundRect(170,204,140,28,8,CLR_ACCENT);
+  M5.Display.setTextColor(CLR_BG); M5.Display.drawString("確定",240,218);
+}
+
+void doPoweroff(){
+  M5.Display.fillScreen(CLR_BG); M5.Display.setTextDatum(middle_center);
+  M5.Display.setFont(nullptr); M5.Display.setTextSize(2);
+  M5.Display.setTextColor(CLR_WHITE); M5.Display.drawString("關機中...",160,120);
+  delay(300);
+  M5.Power.powerOff();
 }
 
 void showEndMsg(){
@@ -1070,6 +1213,8 @@ void handleTouch(){
     return;
   }
   if(currentScreen==SCR_IDLE){
+    // WiFi 狀態燈：點擊可重新選擇 WiFi
+    if(tx>=246&&tx<=264&&ty>=4&&ty<=28){ drawWifiChangeConfirm(); return; }
     // 名字觸控改名（主控）
     if(tx>80&&tx<205&&ty<32&&pilotMode==MODE_MASTER){ kbBuffer=pilotName; kbHint="更改飛手名字（英文小寫）"; kbTarget="rename"; kbShift=false; kbPage=0; kbMaxLen=10; currentScreen=SCR_NAME_INPUT; drawKeyboard(); return; }
     // END 按鈕
@@ -1080,12 +1225,27 @@ void handleTouch(){
     if(tx<230&&ty>58&&ty<78&&pilotMode==MODE_MASTER){ notamHadValue=notamCode.length()>0; keypadMode=KP_NOTAM; keypadBuffer=notamCode.length()>0?notamCode.substring(1):""; drawKeypad(); return; }
     // 降落長按
     if(ty>178&&ty<214&&currentStatus=="可以起飛"&&pilotMode==MODE_MASTER){ landBtnPressAt=millis(); landBtnPressed=true; }
-    // 轉點（底部第4格）
-    if(ty>=216&&ty<=240&&tx>=240&&pilotMode==MODE_MASTER){ turnpointSource=1; keypadMode=KP_TURNPOINT; keypadBuffer=""; drawMinuteKeypad(); return; }
+    // 轉點（底部第4格，共5格）
+    if(ty>=216&&ty<=240&&tx>=192&&tx<256&&pilotMode==MODE_MASTER){ turnpointSource=1; keypadMode=KP_TURNPOINT; keypadBuffer=""; drawMinuteKeypad(); return; }
+    // 關機（底部第5格；跟隨模式則是右側區塊）
+    if(pilotMode==MODE_MASTER&&ty>=216&&ty<=240&&tx>=256){ drawPoweroffConfirm(); return; }
+    if(pilotMode==MODE_FOLLOWER&&ty>=222&&ty<=240&&tx>=256){ drawPoweroffConfirm(); return; }
   }
   else if(currentScreen==SCR_TURNPOINT_CONFIRM){
     if(tx<160){ currentScreen=SCR_IDLE; drawIdle(); }
     else { turnpointSource=2; keypadMode=KP_TURNPOINT; keypadBuffer=""; drawMinuteKeypad(); }
+  }
+  else if(currentScreen==SCR_POWEROFF_CONFIRM){
+    if(tx<160){ currentScreen=SCR_IDLE; drawIdle(); }
+    else { doPoweroff(); }
+  }
+  else if(currentScreen==SCR_WIFI_CHANGE_CONFIRM){
+    if(tx<160){ currentScreen=SCR_IDLE; drawIdle(); }
+    else { startWifiScan(); }
+  }
+  else if(currentScreen==SCR_UPDATE_CONFIRM){
+    if(tx<160){ currentScreen=SCR_MODE_SELECT; drawModeSelect(); }
+    else { doFirmwareUpdate(); }
   }
   else if(currentScreen==SCR_COMMAND){
     if(tx<230&&ty>58&&ty<78&&pilotMode==MODE_MASTER){ notamHadValue=notamCode.length()>0; keypadMode=KP_NOTAM; keypadBuffer=notamCode.length()>0?notamCode.substring(1):""; drawKeypad(); return; }
@@ -1113,6 +1273,9 @@ void handleButtons(){
     if(currentScreen==SCR_WIFI_PASS){ currentScreen=SCR_WIFI_SCAN; drawWifiList(); return; }
     if(currentScreen==SCR_FOLLOWER_CODE){ pilotMode=MODE_NONE; currentScreen=SCR_MODE_SELECT; drawModeSelect(); return; }
     if(currentScreen==SCR_TURNPOINT_CONFIRM){ currentScreen=SCR_IDLE; drawIdle(); return; }
+    if(currentScreen==SCR_POWEROFF_CONFIRM){ currentScreen=SCR_IDLE; drawIdle(); return; }
+    if(currentScreen==SCR_WIFI_CHANGE_CONFIRM){ currentScreen=SCR_IDLE; drawIdle(); return; }
+    if(currentScreen==SCR_UPDATE_CONFIRM){ currentScreen=SCR_MODE_SELECT; drawModeSelect(); return; }
     if(currentScreen==SCR_NAME_INPUT||currentScreen==SCR_WIFI_SCAN) return;
     brightnessLevel=(brightnessLevel+1)%3;
     M5.Display.setBrightness(BRIGHT_VAL[brightnessLevel]); buzz(1000,50);
@@ -1130,14 +1293,26 @@ void handleButtons(){
   if(M5.BtnPWR.wasClicked()){
     if(currentScreen==SCR_CHARGING){ M5.Display.setBrightness(BRIGHT_VAL[brightnessLevel]); currentScreen=SCR_BOOT; }
   }
+  if(M5.BtnPWR.pressedFor(2000)){ doPoweroff(); }
 }
 
 // ── Setup ─────────────────────────────────────────────────────────────────────
+void onWiFiEvent(arduino_event_id_t event, arduino_event_info_t info){
+  if(event==ARDUINO_EVENT_WIFI_STA_DISCONNECTED){
+    uint8_t reason=info.wifi_sta_disconnected.reason;
+    Serial.printf("[WiFi] disconnected, reason=%d (%s)\n", reason, WiFi.disconnectReasonName((wifi_err_reason_t)reason));
+  }
+}
+
 void setup(){
   auto cfg=M5.config(); M5.begin(cfg);
   M5.Display.setRotation(1); M5.Display.setBrightness(BRIGHT_VAL[brightnessLevel]);
   M5.Display.fillScreen(CLR_BG); M5.Display.setTextDatum(middle_center);
   M5.Speaker.setVolume(255); M5.Speaker.begin(); Serial.begin(115200);
+  WiFi.onEvent(onWiFiEvent);
+  WiFi.mode(WIFI_STA); WiFi.setTxPower(WIFI_POWER_19_5dBm);
+  Serial2.setRxBufferSize(1024);
+  Serial2.begin(GPS_BAUD, SERIAL_8N1, GPS_RX_PIN, GPS_TX_PIN);
   loadPrefs();
 
   if(M5.Power.isCharging()){
@@ -1164,12 +1339,12 @@ void setup(){
   else {
     drawConnecting("自動連線 "+savedSSID+"...");
     WiFi.mode(WIFI_STA); WiFi.setSleep(false); WiFi.begin(savedSSID.c_str(),savedPassword.c_str());
-    int t=0; while(WiFi.status()!=WL_CONNECTED&&t<30){delay(500);t++;}
+    int t=0; while(WiFi.status()!=WL_CONNECTED&&t<50){delay(500);t++;}
     if(WiFi.status()==WL_CONNECTED){
       configTime(TZ_OFFSET*3600,0,NTP_SERVER);
       struct tm ti; int nt=0; while(!getLocalTime(&ti)&&nt<20){delay(500);nt++;}
-      currentScreen=SCR_MODE_SELECT; drawModeSelect();
-    } else { startWifiScan(); }
+      checkForUpdate();
+    } else { drawConnecting(wifiFailReason()); delay(2500); startWifiScan(); }
   }
   lastActivity=millis();
 }
@@ -1178,12 +1353,13 @@ void setup(){
 void loop(){
   M5.update();
   wsClient.loop();
+  updateGpsReading();
   unsigned long now=millis();
   if(now-lastHeartbeat>5000){ sendHeartbeat(); lastHeartbeat=now; }
   if(now-lastConnCheck>3000&&keypadMode==KP_NONE&&
      currentScreen!=SCR_WIFI_SCAN&&currentScreen!=SCR_NAME_INPUT&&
      currentScreen!=SCR_WIFI_PASS&&currentScreen!=SCR_MODE_SELECT&&
-     currentScreen!=SCR_FOLLOWER_CODE){ checkConnection(); lastConnCheck=now; }
+     currentScreen!=SCR_FOLLOWER_CODE&&currentScreen!=SCR_UPDATE_CONFIRM){ checkConnection(); lastConnCheck=now; }
   if(now-lastTimeUpd>1000){ lastTimeUpd=now; if(keypadMode==KP_NONE&&(currentScreen==SCR_IDLE||currentScreen==SCR_COMMAND)) updateClock(); }
   handleBuzzer(now);
   // 跑道通知5秒後清除

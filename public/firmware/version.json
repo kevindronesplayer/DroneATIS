@@ -1,0 +1,5 @@
+{
+  "version": 1,
+  "notes": "OTA更新功能",
+  "url": "https://droneatis-production.up.railway.app/firmware/esp32_pilot.bin"
+}
