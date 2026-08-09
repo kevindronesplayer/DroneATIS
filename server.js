@@ -85,7 +85,7 @@ const server = http.createServer((req,res)=>{
   const mime={'.html':'text/html','.js':'text/javascript','.css':'text/css','.json':'application/json','.bin':'application/octet-stream'};
   fs.readFile(fp,(err,data)=>{
     if(err){res.writeHead(404);res.end('Not found');return;}
-    res.writeHead(200,{'Content-Type':mime[path.extname(fp)]||'text/plain'});
+    res.writeHead(200,{'Content-Type':mime[path.extname(fp)]||'text/plain','Content-Length':data.length});
     res.end(data);
   });
 });

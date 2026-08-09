@@ -23,7 +23,7 @@
 #define GPS_RX_PIN    32   // Core2 PORT.A（外接I2C腳位，這裡改當UART用；訊號1=RXD）
 #define GPS_TX_PIN    33   // Core2 PORT.A（訊號2=TXD）
 #define GPS_BAUD      115200
-#define FW_VERSION    2
+#define FW_VERSION    3
 #define UPDATE_CHECK_URL "https://droneatis-production.up.railway.app/firmware/version.json"
 
 // ── NVS 儲存 ─────────────────────────────────────────────────────────────────
@@ -452,6 +452,7 @@ void doFirmwareUpdate(){
   httpUpdate.rebootOnUpdate(true);
   t_httpUpdate_return ret=httpUpdate.update(client, pendingFwUrl);
   if(ret==HTTP_UPDATE_FAILED){
+    Serial.printf("[OTA] failed (%d): %s\n", httpUpdate.getLastError(), httpUpdate.getLastErrorString().c_str());
     fXs(); M5.Display.setTextColor(CLR_RED); M5.Display.drawString("更新失敗，繼續使用目前版本",160,160);
     delay(2000);
     currentScreen=SCR_MODE_SELECT; drawModeSelect();
