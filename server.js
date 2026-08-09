@@ -11,8 +11,9 @@ const flightLog = [];
 const commLog = [];
 let groupCounter = 1;
 
-function todayStr(){ return new Date().toLocaleDateString('zh-TW'); }
-function nowTimeStr(){ return new Date().toLocaleTimeString('zh-TW',{hour:'2-digit',minute:'2-digit',hour12:false}); }
+const TZ='Asia/Taipei'; // Railway 主機預設是UTC，時間顯示都要明確指定台灣時區
+function todayStr(){ return new Date().toLocaleDateString('zh-TW',{timeZone:TZ}); }
+function nowTimeStr(){ return new Date().toLocaleTimeString('zh-TW',{hour:'2-digit',minute:'2-digit',hour12:false,timeZone:TZ}); }
 
 // 預設分類
 groups.set('g_0', {name:'預設分類', memberIds:[]});
@@ -77,7 +78,7 @@ function generateReport(){
 const server = http.createServer((req,res)=>{
   if(req.url==='/download-log'){
     const txt=generateReport();
-    const date=new Date().toLocaleDateString('zh-TW').replace(/\//g,'-');
+    const date=todayStr().replace(/\//g,'-');
     res.writeHead(200,{'Content-Type':'text/plain;charset=utf-8','Content-Disposition':`attachment;filename="flight-log-${date}.txt"`});
     res.end('\uFEFF'+txt); return;
   }
@@ -469,9 +470,21 @@ wss.on('connection',ws=>{
         const pilot=pilots.get(conn.clientId);
         if(!pilot) return;
         pilot.turnpoint={minutes:msg.minutes,viaNotam:!!msg.viaNotam,ts:Date.now()};
+        pilot.arrived=false;
         pushComm(pilot.name,'pilot','回報轉點'+(msg.viaNotam?'（公告轉點）':'')+'，約'+msg.minutes+'分鐘');
         toTower({type:'pilots_update',pilots:pilotSnap()});
         toTower({type:'pilot_turnpoint',pilotName:pilot.name,clientId:conn.clientId,minutes:msg.minutes,viaNotam:!!msg.viaNotam});
+        break;
+      }
+
+      case 'pilot_arrived':{
+        const pilot=pilots.get(conn.clientId);
+        if(!pilot) return;
+        pilot.turnpoint=null;
+        pilot.arrived=true;
+        pushComm(pilot.name,'pilot','已就位');
+        toTower({type:'pilots_update',pilots:pilotSnap()});
+        toTower({type:'pilot_arrived',pilotName:pilot.name,clientId:conn.clientId});
         break;
       }
 

@@ -23,7 +23,7 @@
 #define GPS_RX_PIN    32   // Core2 PORT.A（外接I2C腳位，這裡改當UART用；訊號1=RXD）
 #define GPS_TX_PIN    33   // Core2 PORT.A（訊號2=TXD）
 #define GPS_BAUD      115200
-#define FW_VERSION    3
+#define FW_VERSION    4
 #define UPDATE_CHECK_URL "https://droneatis-production.up.railway.app/firmware/version.json"
 
 // ── NVS 儲存 ─────────────────────────────────────────────────────────────────
@@ -91,6 +91,7 @@ KeypadMode keypadMode = KP_NONE;
 String keypadBuffer   = "";
 bool notamHadValue    = false;   // 開啟公告鍵盤時是否已有舊值（判斷是否為「第二次輸入」）
 int  turnpointSource  = 0;       // 0=無, 1=專屬轉點按鈕, 2=公告二次輸入後詢問
+String turnBtnLabel   = "就位";  // 底部按鈕目前顯示文字：「轉點」或「就位」，開機預設就位
 
 // 韌體更新
 int    pendingFwVersion = 0;
@@ -898,7 +899,7 @@ void drawIdle(){
     M5.Display.setTextColor((currentStatus=="可以起飛")?lblGray:CLR_ACCENT);
     M5.Display.drawString("詢問",segW*2+segW/2,225);
     M5.Display.setTextColor(CLR_ACCENT);
-    M5.Display.drawString("轉點",segW*3+segW/2,225);
+    M5.Display.drawString(turnBtnLabel,segW*3+segW/2,225);
     M5.Display.setTextColor(lblGray);
     M5.Display.drawString("關機",segW*4+segW/2,225);
   }
@@ -1159,6 +1160,12 @@ void sendTurnpoint(int minutes, bool viaNotam){
   String o; serializeJson(doc,o); wsClient.sendTXT(o);
 }
 
+void sendArrived(){
+  StaticJsonDocument<64> doc;
+  doc["type"]="pilot_arrived"; doc["pilotName"]=pilotName;
+  String o; serializeJson(doc,o); wsClient.sendTXT(o);
+}
+
 void handleMinuteKeypadTouch(int tx,int ty){
   int keys[]={1,2,3,4,5,6,7,8,9,-1,0,-2};
   int kx=10,ky=58,kw=94,kh=40,gap=4;
@@ -1174,6 +1181,7 @@ void handleMinuteKeypadTouch(int tx,int ty){
           return;
         }
         sendTurnpoint(n, turnpointSource==2);
+        if(turnpointSource==1) turnBtnLabel="就位";
         keypadMode=KP_NONE; turnpointSource=0;
         currentScreen=SCR_IDLE; drawIdle(); beep2();
         return;
@@ -1226,8 +1234,12 @@ void handleTouch(){
     if(tx<230&&ty>58&&ty<78&&pilotMode==MODE_MASTER){ notamHadValue=notamCode.length()>0; keypadMode=KP_NOTAM; keypadBuffer=notamCode.length()>0?notamCode.substring(1):""; drawKeypad(); return; }
     // 降落長按
     if(ty>178&&ty<214&&currentStatus=="可以起飛"&&pilotMode==MODE_MASTER){ landBtnPressAt=millis(); landBtnPressed=true; }
-    // 轉點（底部第4格，共5格）
-    if(ty>=216&&ty<=240&&tx>=192&&tx<256&&pilotMode==MODE_MASTER){ turnpointSource=1; keypadMode=KP_TURNPOINT; keypadBuffer=""; drawMinuteKeypad(); return; }
+    // 轉點／就位切換按鈕（底部第4格，共5格）
+    if(ty>=216&&ty<=240&&tx>=192&&tx<256&&pilotMode==MODE_MASTER){
+      if(turnBtnLabel=="轉點"){ turnpointSource=1; keypadMode=KP_TURNPOINT; keypadBuffer=""; drawMinuteKeypad(); }
+      else { sendArrived(); turnBtnLabel="轉點"; drawIdle(); beep2(); }
+      return;
+    }
     // 關機（底部第5格；跟隨模式則是右側區塊）
     if(pilotMode==MODE_MASTER&&ty>=216&&ty<=240&&tx>=256){ drawPoweroffConfirm(); return; }
     if(pilotMode==MODE_FOLLOWER&&ty>=222&&ty<=240&&tx>=256){ drawPoweroffConfirm(); return; }

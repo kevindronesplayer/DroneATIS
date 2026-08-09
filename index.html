@@ -42,7 +42,7 @@ body{font-family:-apple-system,'Noto Sans TC',sans-serif;background:var(--bg);co
 .pilot-name{font-size:26px;font-weight:600;display:flex;align-items:center;gap:6px;}
 .grp-badge{font-size:26px;padding:1px 6px;border-radius:99px;background:var(--sf3);color:var(--tx2);}
 .pilot-sub{font-size:19px;color:var(--tx2);margin-top:1px;}
-.tag-row{display:flex;gap:6px;margin-left:auto;flex-shrink:0;}
+.tag-row{display:flex;flex-direction:column;align-items:flex-end;gap:4px;margin-left:auto;flex-shrink:0;}
 .ack-tag{font-size:26px;font-weight:700;padding:2px 7px;border-radius:99px;flex-shrink:0;}
 .ack-tag.pending{background:var(--am);color:#000;}
 .ack-tag.done{background:var(--gr);color:#000;}
@@ -377,6 +377,9 @@ function handle(msg){
   else if(msg.type==='pilot_turnpoint'){
     showTurnpointAlert(msg.pilotName, msg.minutes, msg.viaNotam, msg.clientId);
   }
+  else if(msg.type==='pilot_arrived'){
+    showToast(`🟢 ${msg.pilotName} 已就位`);
+  }
   else if(msg.type==='pilot_land_report'){
     // 直接更新本地 pilots 的狀態，不等 pilots_update
     const lp=pilots.find(x=>x.clientId===msg.clientId);
@@ -435,7 +438,7 @@ function updatePilotStatus(p){
       tagRow.appendChild(tag);
     }
   } else if(existAckTag) existAckTag.remove();
-  const tpInfo=p.turnpoint?(p.turnpoint.viaNotam?`公告轉點 約${p.turnpoint.minutes}分`:`轉點中 約${p.turnpoint.minutes}分`):null;
+  const tpInfo=p.turnpoint?(p.turnpoint.viaNotam?`公告轉點 約${p.turnpoint.minutes}分`:`轉點中 約${p.turnpoint.minutes}分`):(p.arrived?'已就位':null);
   const existTpTag=card.querySelector('[data-role="tp"]');
   if(tpInfo){
     if(existTpTag){
@@ -554,7 +557,7 @@ function pilotCardHTML(p){
   const grp=groups.find(g=>g.groupId===p.groupId);
   const col=avatarColor(p.name);
   const ackInfo=ACK_MAP[p.ackStatus]||null;
-  const tpInfo=p.turnpoint?(p.turnpoint.viaNotam?`公告轉點 約${p.turnpoint.minutes}分`:`轉點中 約${p.turnpoint.minutes}分`):null;
+  const tpInfo=p.turnpoint?(p.turnpoint.viaNotam?`公告轉點 約${p.turnpoint.minutes}分`:`轉點中 約${p.turnpoint.minutes}分`):(p.arrived?'已就位':null);
   const gpsActive=p.gps===true&&p.lat&&p.lng;
 
   // 分類下拉

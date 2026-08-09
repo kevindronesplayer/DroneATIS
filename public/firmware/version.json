@@ -1,5 +1,5 @@
 {
-  "version": 3,
-  "notes": "修正OTA下載失敗",
+  "version": 4,
+  "notes": "轉點/就位切換按鈕",
   "url": "https://droneatis-production.up.railway.app/firmware/esp32_pilot.bin"
 }
