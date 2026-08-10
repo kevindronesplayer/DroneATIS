@@ -1,5 +1,5 @@
 {
-  "version": 5,
-  "notes": "底部按鈕改回3格對齊實體鍵，新增更多選單",
+  "version": 6,
+  "notes": "修正更多按鈕消失問題、結束任務納入更多選單、跟隨模式GPS/亮度調整",
   "url": "https://droneatis-production.up.railway.app/firmware/esp32_pilot.bin"
 }
