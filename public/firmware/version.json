@@ -1,5 +1,5 @@
 {
-  "version": 4,
-  "notes": "轉點/就位切換按鈕",
+  "version": 5,
+  "notes": "底部按鈕改回3格對齊實體鍵，新增更多選單",
   "url": "https://droneatis-production.up.railway.app/firmware/esp32_pilot.bin"
 }
