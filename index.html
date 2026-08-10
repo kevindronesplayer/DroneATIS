@@ -378,7 +378,7 @@ function handle(msg){
     showTurnpointAlert(msg.pilotName, msg.minutes, msg.viaNotam, msg.clientId);
   }
   else if(msg.type==='pilot_arrived'){
-    showToast(`🟢 ${msg.pilotName} 已就位`);
+    showArrivedAlert(msg.pilotName, msg.clientId);
   }
   else if(msg.type==='pilot_land_report'){
     // 直接更新本地 pilots 的狀態，不等 pilots_update
@@ -905,50 +905,75 @@ document.querySelectorAll('.tab').forEach(tab=>{
 });
 
 // ── 工具 ─────────────────────────────────────────────────────────
-function showAskAlert(name, cid){
-  // 移除舊的
-  const old=document.getElementById('askAlert');
-  if(old) old.remove();
-  const el=document.createElement('div');
-  el.id='askAlert';
-  el.style.cssText='position:fixed;top:60px;left:50%;transform:translateX(-50%);background:#ff3d57;color:#fff;padding:14px 20px;border-radius:12px;z-index:400;font-size:26px;font-weight:600;text-align:center;box-shadow:0 4px 20px rgba(255,61,87,.4);min-width:220px;cursor:pointer;';
-  el.innerHTML=`⚠️ ${name} 詢問機場狀況<br><span style="font-size:19px;font-weight:400;opacity:.8">點擊關閉</span>`;
-  el.onclick=()=>el.remove();
+// 飛手事件提示：一次只顯示一個，多個事件排隊依序顯示，避免疊在一起
+let alertQueue=[], alertShowing=false;
+function queueAlert(build, duration){
+  alertQueue.push({build,duration});
+  processAlertQueue();
+}
+function processAlertQueue(){
+  if(alertShowing||!alertQueue.length) return;
+  alertShowing=true;
+  const {build,duration}=alertQueue.shift();
+  const el=build();
+  const finish=()=>{
+    if(el.parentNode) el.remove();
+    alertShowing=false;
+    processAlertQueue();
+  };
+  const prevClick=el.onclick;
+  el.onclick=()=>{ if(prevClick) prevClick(); finish(); };
   document.body.appendChild(el);
-  // 高亮飛手卡片
-  const card=document.getElementById('pc_'+cid);
-  if(card){card.style.background='rgba(0,212,255,0.12)';setTimeout(()=>card.style.background='',5000);}
-  // 10秒後自動消失
-  setTimeout(()=>{if(el.parentNode)el.remove();},10000);
+  setTimeout(finish,duration);
+}
+
+function showAskAlert(name, cid){
+  queueAlert(()=>{
+    const el=document.createElement('div');
+    el.style.cssText='position:fixed;top:60px;left:50%;transform:translateX(-50%);background:#ff3d57;color:#fff;padding:14px 20px;border-radius:12px;z-index:400;font-size:26px;font-weight:600;text-align:center;box-shadow:0 4px 20px rgba(255,61,87,.4);min-width:220px;cursor:pointer;';
+    el.innerHTML=`⚠️ ${name} 詢問機場狀況<br><span style="font-size:19px;font-weight:400;opacity:.8">點擊關閉</span>`;
+    const card=document.getElementById('pc_'+cid);
+    if(card){card.style.background='rgba(0,212,255,0.12)';setTimeout(()=>card.style.background='',5000);}
+    return el;
+  },10000);
 }
 
 function showNotamAlert(name, notam, cid){
-  const el=document.createElement('div');
-  el.style.cssText='position:fixed;top:60px;left:50%;transform:translateX(-50%);background:var(--am);color:#000;padding:12px 18px;border-radius:12px;z-index:400;font-size:14px;font-weight:600;text-align:center;min-width:200px;cursor:pointer;';
-  el.innerHTML=`📢 ${name} 更新飛航公告<br><span style="font-size:16px">${notam}</span>`;
-  el.onclick=()=>el.remove();
-  document.body.appendChild(el);
-  setTimeout(()=>{if(el.parentNode)el.remove();},8000);
+  queueAlert(()=>{
+    const el=document.createElement('div');
+    el.style.cssText='position:fixed;top:60px;left:50%;transform:translateX(-50%);background:var(--am);color:#000;padding:12px 18px;border-radius:12px;z-index:400;font-size:14px;font-weight:600;text-align:center;min-width:200px;cursor:pointer;';
+    el.innerHTML=`📢 ${name} 更新飛航公告<br><span style="font-size:16px">${notam}</span>`;
+    return el;
+  },8000);
 }
 
 function showTurnpointAlert(name, minutes, viaNotam, cid){
-  const el=document.createElement('div');
-  el.style.cssText='position:fixed;top:60px;left:50%;transform:translateX(-50%);background:var(--am);color:#000;padding:12px 18px;border-radius:12px;z-index:400;font-size:14px;font-weight:600;text-align:center;min-width:200px;cursor:pointer;';
-  el.innerHTML=`🔄 ${name} ${viaNotam?'更新公告後轉點':'回報轉點'}<br><span style="font-size:16px">約 ${minutes} 分鐘</span>`;
-  el.onclick=()=>el.remove();
-  document.body.appendChild(el);
-  setTimeout(()=>{if(el.parentNode)el.remove();},8000);
+  queueAlert(()=>{
+    const el=document.createElement('div');
+    el.style.cssText='position:fixed;top:60px;left:50%;transform:translateX(-50%);background:var(--am);color:#000;padding:12px 18px;border-radius:12px;z-index:400;font-size:14px;font-weight:600;text-align:center;min-width:200px;cursor:pointer;';
+    el.innerHTML=`🔄 ${name} ${viaNotam?'更新公告後轉點':'回報轉點'}<br><span style="font-size:16px">約 ${minutes} 分鐘</span>`;
+    return el;
+  },8000);
+}
+
+function showArrivedAlert(name, cid){
+  queueAlert(()=>{
+    const el=document.createElement('div');
+    el.style.cssText='position:fixed;top:60px;left:50%;transform:translateX(-50%);background:var(--gr);color:#000;padding:12px 18px;border-radius:12px;z-index:400;font-size:14px;font-weight:600;text-align:center;min-width:200px;cursor:pointer;';
+    el.innerHTML=`🟢 ${name} 已就位`;
+    return el;
+  },6000);
 }
 
 function showLandAlert(name, cid){
-  const el=document.createElement('div');
-  el.style.cssText='position:fixed;top:60px;left:50%;transform:translateX(-50%);background:var(--rd);color:#fff;padding:14px 20px;border-radius:12px;z-index:400;font-size:15px;font-weight:700;text-align:center;min-width:220px;cursor:pointer;box-shadow:0 4px 20px rgba(255,61,87,.5);';
-  el.innerHTML=`🛬 ${name} 回報降落<br><span style="font-size:11px;font-weight:400;opacity:.8">點擊關閉</span>`;
-  el.onclick=()=>el.remove();
-  document.body.appendChild(el);
-  const card=document.getElementById('pc_'+cid);
-  if(card){card.style.background='rgba(255,61,87,0.1)';setTimeout(()=>card.style.background='',5000);}
-  setTimeout(()=>{if(el.parentNode)el.remove();},10000);
+  queueAlert(()=>{
+    const el=document.createElement('div');
+    el.style.cssText='position:fixed;top:60px;left:50%;transform:translateX(-50%);background:var(--rd);color:#fff;padding:14px 20px;border-radius:12px;z-index:400;font-size:15px;font-weight:700;text-align:center;min-width:220px;cursor:pointer;box-shadow:0 4px 20px rgba(255,61,87,.5);';
+    el.innerHTML=`🛬 ${name} 回報降落<br><span style="font-size:11px;font-weight:400;opacity:.8">點擊關閉</span>`;
+    const card=document.getElementById('pc_'+cid);
+    if(card){card.style.background='rgba(255,61,87,0.1)';setTimeout(()=>card.style.background='',5000);}
+    return el;
+  },10000);
 }
 
 let pendingRenameGid=null;

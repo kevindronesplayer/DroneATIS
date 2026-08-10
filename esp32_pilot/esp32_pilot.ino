@@ -23,7 +23,7 @@
 #define GPS_RX_PIN    32   // Core2 PORT.A（外接I2C腳位，這裡改當UART用；訊號1=RXD）
 #define GPS_TX_PIN    33   // Core2 PORT.A（訊號2=TXD）
 #define GPS_BAUD      115200
-#define FW_VERSION    6
+#define FW_VERSION    7
 #define UPDATE_CHECK_URL "https://droneatis-production.up.railway.app/firmware/version.json"
 
 // ── NVS 儲存 ─────────────────────────────────────────────────────────────────
@@ -208,11 +208,12 @@ void drawTopBar(){
   M5.Display.setTextDatum(middle_left);
   M5.Display.setTextColor(CLR_WHITE);
   M5.Display.drawString(getNowTime(),4,16);
-  M5.Display.fillRoundRect(50,4,32,24,4,CLR_SURFACE); M5.Display.drawRoundRect(50,4,32,24,4,CLR_GRAY);
-  M5.Display.setTextDatum(middle_center); M5.Display.setTextColor(CLR_GRAY);
-  M5.Display.drawString("更多",66,16);
+  M5.Display.setTextDatum(middle_center);
   M5.Display.setTextColor(CLR_ACCENT);
   M5.Display.drawString(pilotName,160,16);
+  M5.Display.fillRoundRect(206,4,40,24,4,CLR_SURFACE); M5.Display.drawRoundRect(206,4,40,24,4,CLR_GRAY);
+  M5.Display.setTextColor(CLR_GRAY);
+  M5.Display.drawString("更多",226,16);
   bool ok=(WiFi.status()==WL_CONNECTED&&wsConnected);
   M5.Display.fillCircle(252,16,5,ok?CLR_GREEN:CLR_RED);
   drawBattery();
@@ -986,17 +987,23 @@ void drawMoreMenu(){
 
   if(pilotMode==MODE_MASTER){
     // 結束任務
-    M5.Display.fillRoundRect(20,52,280,42,10,CLR_SURFACE); M5.Display.drawRoundRect(20,52,280,42,10,CLR_GRAY);
-    fSm(); M5.Display.setTextColor(CLR_WHITE); M5.Display.drawString("結束任務",160,73);
+    M5.Display.fillRoundRect(20,48,280,38,10,CLR_SURFACE); M5.Display.drawRoundRect(20,48,280,38,10,CLR_GRAY);
+    fSm(); M5.Display.setTextColor(CLR_WHITE); M5.Display.drawString("結束任務",160,67);
     // GPS 開關
-    M5.Display.fillRoundRect(20,100,280,42,10,CLR_SURFACE); M5.Display.drawRoundRect(20,100,280,42,10,CLR_GRAY);
+    M5.Display.fillRoundRect(20,90,280,38,10,CLR_SURFACE); M5.Display.drawRoundRect(20,90,280,38,10,CLR_GRAY);
     M5.Display.setTextColor(gpsEnabled?CLR_GREEN:CLR_WHITE);
-    M5.Display.drawString(String("GPS：")+(gpsEnabled?"開啟":"關閉"),160,121);
+    M5.Display.drawString(String("GPS：")+(gpsEnabled?"開啟":"關閉"),160,109);
     // 關機（結束任務前不可用）
     uint16_t poColor=sessionEnded?CLR_RED:CLR_GRAY;
-    M5.Display.fillRoundRect(20,148,280,42,10,CLR_SURFACE); M5.Display.drawRoundRect(20,148,280,42,10,poColor);
-    M5.Display.setTextColor(poColor); M5.Display.drawString("關機",160,169);
-    if(!sessionEnded){ fXs(); M5.Display.setTextColor(CLR_GRAY); M5.Display.drawString("請先結束任務才能關機",160,198); }
+    M5.Display.fillRoundRect(20,132,280,38,10,CLR_SURFACE); M5.Display.drawRoundRect(20,132,280,38,10,poColor);
+    if(sessionEnded){ M5.Display.setTextColor(poColor); M5.Display.drawString("關機",160,151); }
+    else {
+      fSm(); M5.Display.setTextColor(poColor); M5.Display.drawString("關機",160,145);
+      fXs(); M5.Display.drawString("請先結束任務",160,161);
+    }
+    // 返回選擇模式
+    fSm(); M5.Display.fillRoundRect(20,174,280,38,10,CLR_SURFACE); M5.Display.drawRoundRect(20,174,280,38,10,CLR_GRAY);
+    M5.Display.setTextColor(CLR_WHITE); M5.Display.drawString("返回選擇模式",160,193);
   } else {
     M5.Display.fillRoundRect(20,100,280,50,10,CLR_SURFACE); M5.Display.drawRoundRect(20,100,280,50,10,CLR_RED);
     fSm(); M5.Display.setTextColor(CLR_RED); M5.Display.drawString("關機",160,125);
@@ -1035,9 +1042,6 @@ void updateClock(){
   M5.Display.fillRect(0,0,100,32,CLR_DARK);
   fXs(); M5.Display.setTextDatum(middle_left); M5.Display.setTextColor(CLR_WHITE);
   M5.Display.drawString(getNowTime(),6,16);
-  M5.Display.fillRoundRect(50,4,32,24,4,CLR_SURFACE); M5.Display.drawRoundRect(50,4,32,24,4,CLR_GRAY);
-  M5.Display.setTextDatum(middle_center); M5.Display.setTextColor(CLR_GRAY);
-  M5.Display.drawString("更多",66,16);
   if(currentScreen==SCR_COMMAND&&(landState==LAND_WAIT_ACK||landState==LAND_COUNTDOWN)&&landingTimeStr.length()>=4){
     int diff=landTimeSecs()-getNowTotalSecs();
     M5.Display.fillRect(162,110,158,28,CLR_BG);
@@ -1162,6 +1166,8 @@ void drawTurnpointConfirm(){
 void drawMinuteKeypad(){
   M5.Display.fillScreen(CLR_BG); M5.Display.fillRect(0,0,320,32,CLR_BG);
   M5.Display.setTextDatum(middle_center);
+  M5.Display.fillRoundRect(4,2,40,26,4,CLR_SURFACE); M5.Display.drawRoundRect(4,2,40,26,4,CLR_GRAY);
+  fSm(); M5.Display.setTextColor(CLR_WHITE); M5.Display.drawString("<",24,15);
   fXs(); M5.Display.setTextColor(CLR_AMBER); M5.Display.drawString("轉點時間（大約幾分鐘）",160,10);
   String preview=(keypadBuffer.length()>0?keypadBuffer:"__")+" 分鐘";
   fXs(); M5.Display.setTextColor(CLR_ACCENT); M5.Display.drawString(preview,160,36);
@@ -1191,6 +1197,11 @@ void sendArrived(){
 }
 
 void handleMinuteKeypadTouch(int tx,int ty){
+  if(tx>=4&&tx<=44&&ty>=2&&ty<=28){
+    keypadMode=KP_NONE; turnpointSource=0;
+    currentScreen=SCR_IDLE; drawIdle();
+    return;
+  }
   int keys[]={1,2,3,4,5,6,7,8,9,-1,0,-2};
   int kx=10,ky=58,kw=94,kh=40,gap=4;
   for(int i=0;i<12;i++){
@@ -1238,7 +1249,7 @@ void handleTouch(){
   int tx=t.x, ty=t.y;
 
   // 更多選單：頂部列，任何有畫面頂欄的畫面都能點
-  if((currentScreen==SCR_IDLE||currentScreen==SCR_COMMAND)&&tx>=50&&tx<=82&&ty>=4&&ty<=28){ drawMoreMenu(); return; }
+  if((currentScreen==SCR_IDLE||currentScreen==SCR_COMMAND)&&tx>=206&&tx<=246&&ty>=4&&ty<=28){ drawMoreMenu(); return; }
 
   if(currentScreen==SCR_WIFI_SCAN){ handleWifiListTouch(tx,ty); return; }
   if(currentScreen==SCR_NAME_INPUT||currentScreen==SCR_WIFI_PASS||currentScreen==SCR_FOLLOWER_CODE){ handleKeyboardTouch(tx,ty); return; }
@@ -1290,9 +1301,10 @@ void handleTouch(){
   }
   else if(currentScreen==SCR_MORE_MENU){
     if(pilotMode==MODE_MASTER){
-      if(ty>=52&&ty<=94){ drawEndConfirm(); }
-      else if(ty>=100&&ty<=142){ gpsEnabled=!gpsEnabled; if(!gpsEnabled)gpsFixed=false; sendHeartbeat(); drawMoreMenu(); }
-      else if(ty>=148&&ty<=190){ if(sessionEnded) drawPoweroffConfirm(); }
+      if(ty>=48&&ty<=86){ drawEndConfirm(); }
+      else if(ty>=90&&ty<=128){ gpsEnabled=!gpsEnabled; if(!gpsEnabled)gpsFixed=false; sendHeartbeat(); drawMoreMenu(); }
+      else if(ty>=132&&ty<=170){ if(sessionEnded) drawPoweroffConfirm(); }
+      else if(ty>=174&&ty<=212){ pilotMode=MODE_NONE; currentScreen=SCR_MODE_SELECT; drawModeSelect(); }
       else { currentScreen=moreMenuReturnScreen; if(currentScreen==SCR_COMMAND) drawCommand(); else { currentScreen=SCR_IDLE; drawIdle(); } }
     } else {
       if(ty>=100&&ty<=150){ drawPoweroffConfirm(); }
