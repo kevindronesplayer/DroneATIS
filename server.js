@@ -24,7 +24,13 @@ function generateRoomCode(){ let c=''; for(let i=0;i<4;i++) c+=ARROWS[Math.floor
 function generateClientId(){ return 'p_'+Date.now()+'_'+Math.random().toString(36).slice(2,7); }
 
 // 當天午夜過期
-function todayMidnight(){ const d=new Date(); d.setHours(23,59,59,999); return d.getTime(); }
+function todayMidnight(){
+  // 台灣UTC+8無夏令時間，直接用固定位移換算「台灣當天23:59:59.999」對應的真實UTC ms
+  const TZ_OFFSET_MS=8*3600*1000;
+  const shifted=Date.now()+TZ_OFFSET_MS;
+  const dayStart=Math.floor(shifted/86400000)*86400000;
+  return dayStart+86400000-1-TZ_OFFSET_MS;
+}
 // 根據飛手名稱+今天日期，產生固定四碼序號
 function dailyCodeForPilot(name){
   const dateStr=new Date().toISOString().slice(0,10);
@@ -362,7 +368,10 @@ wss.on('connection',ws=>{
           clientId=existingId;
           conn.role='pilot'; conn.clientId=clientId;
           const ep=pilots.get(clientId);
-          const wasTowerConnected=ep.towerConnected;
+          // 配對狀態只在「同一天」內自動延續；跨天視為過期，要求塔台重新輸入序號
+          const lastSeenSameDay=ep.lastSeen&&(new Date(ep.lastSeen).toLocaleDateString('zh-TW',{timeZone:TZ})===todayStr());
+          const wasTowerConnected=ep.towerConnected&&lastSeenSameDay;
+          if(!wasTowerConnected) ep.towerConnected=false;
           ep.wifi=true; ep.lastSeen=Date.now();
           ep.roomCode=roomCode; ep.roomCodeExpiry=expiry;
           ep.battery=msg.battery||ep.battery||100;
