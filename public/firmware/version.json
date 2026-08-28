@@ -1,5 +1,5 @@
 {
-  "version": 7,
-  "notes": "更多按鈕移位、轉點鍵盤/主控返回模式選擇、塔台訊息排隊顯示",
+  "version": 8,
+  "notes": "修正拔線後開機卡死問題，WiFi選擇畫面新增關機按鈕",
   "url": "https://droneatis-production.up.railway.app/firmware/esp32_pilot.bin"
 }
