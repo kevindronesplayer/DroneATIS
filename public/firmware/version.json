@@ -1,5 +1,5 @@
 {
-  "version": 8,
-  "notes": "修正拔線後開機卡死問題，WiFi選擇畫面新增關機按鈕",
+  "version": 9,
+  "notes": "結束任務後自動跳出關機確認；修正更多按鈕誤觸名字",
   "url": "https://droneatis-production.up.railway.app/firmware/esp32_pilot.bin"
 }

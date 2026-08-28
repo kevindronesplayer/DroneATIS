@@ -23,7 +23,7 @@
 #define GPS_RX_PIN    32   // Core2 PORT.A（外接I2C腳位，這裡改當UART用；訊號1=RXD）
 #define GPS_TX_PIN    33   // Core2 PORT.A（訊號2=TXD）
 #define GPS_BAUD      115200
-#define FW_VERSION    8
+#define FW_VERSION    9
 #define UPDATE_CHECK_URL "https://droneatis-production.up.railway.app/firmware/version.json"
 
 // ── NVS 儲存 ─────────────────────────────────────────────────────────────────
@@ -1039,7 +1039,8 @@ void doPoweroff(){
 void showEndMsg(){
   M5.Display.fillRect(40,100,240,36,CLR_SURFACE);
   fSm(); M5.Display.setTextDatum(middle_center); M5.Display.setTextColor(CLR_GREEN);
-  M5.Display.drawString("已通知塔台",160,118); delay(2000); drawIdle();
+  M5.Display.drawString("已通知塔台",160,118); delay(2000);
+  drawIdle(); drawPoweroffConfirm();
 }
 
 // ── 倒數更新 ──────────────────────────────────────────────────────────────────
@@ -1268,7 +1269,7 @@ void handleTouch(){
     // WiFi 狀態燈：點擊可重新選擇 WiFi
     if(tx>=246&&tx<=264&&ty>=4&&ty<=28){ drawWifiChangeConfirm(); return; }
     // 名字觸控改名（主控）
-    if(tx>80&&tx<205&&ty<32&&pilotMode==MODE_MASTER){ kbBuffer=pilotName; kbHint="更改飛手名字（英文小寫）"; kbTarget="rename"; kbShift=false; kbPage=0; kbMaxLen=10; currentScreen=SCR_NAME_INPUT; drawKeyboard(); return; }
+    if(tx>80&&tx<188&&ty<32&&pilotMode==MODE_MASTER){ kbBuffer=pilotName; kbHint="更改飛手名字（英文小寫）"; kbTarget="rename"; kbShift=false; kbPage=0; kbMaxLen=10; currentScreen=SCR_NAME_INPUT; drawKeyboard(); return; }
     // GPS
     if(tx>232&&tx<314&&ty>34&&ty<56){ if(pilotMode==MODE_MASTER){ gpsEnabled=!gpsEnabled; if(!gpsEnabled)gpsFixed=false; drawGpsBtn(); sendHeartbeat(); } }
     // 公告
