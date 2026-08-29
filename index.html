@@ -395,7 +395,9 @@ function renderAll(){renderPilots();renderGroups();renderLog();updateNameBtn();}
 // ── 主要：飛手列表 ──────────────────────────────────────────────
 // 飛手畫面現在只會顯示「狀態」或「手動訊息」兩者中最新收到的那個，塔台這邊比照顯示同一個
 function pilotHeadline(p){
-  return (p.lastCommType==='message'&&p.lastMessage)?p.lastMessage:(p.status||'開機預備');
+  if(p.lastCommType==='message'&&p.lastMessage) return p.lastMessage;
+  if(!p.hasCommand) return '等待塔台來訊';
+  return p.status||'開機預備';
 }
 
 function updatePilotStatus(p){

@@ -158,6 +158,7 @@ function pushComm(pilotName,dir,text){
 function applyStatus(pilot,status,landingTime){
   pilot.status=status;
   pilot.lastCommType='status';
+  pilot.hasCommand=true;
   if(landingTime) pilot.landingTime=landingTime;
   const gn=groupName(pilot.groupId);
   const {tName,tType}=getActiveTower();
@@ -255,6 +256,7 @@ wss.on('connection',ws=>{
         console.log('[MSG] connection found:', found);
         pilot.lastMessage=msg.message;
         pilot.lastCommType='message';
+        pilot.hasCommand=true;
         pilot.ackPending=true; pilot.ackStatus='pending'; pilot.ackDeadline=Date.now()+30000;
         pushComm(pilot.name,'tower',msg.message);
         toPilot(msg.clientId,{type:'message',message:msg.message});
@@ -330,6 +332,7 @@ wss.on('connection',ws=>{
           landingTime: masterPilot.landingTime,
           lastMessage: masterPilot.lastMessage||'',
           lastCommType: masterPilot.lastCommType||'status',
+          hasCommand: !!masterPilot.hasCommand,
           notam: masterPilot.notam||'',
           rwy: masterPilot.rwy||''
         }));
@@ -396,7 +399,7 @@ wss.on('connection',ws=>{
           pilots.set(clientId,{
             clientId,name:pilotName,roomCode,notam:'',rwy:'',
             roomCodeExpiry:expiry,
-            groupId:null,status:'開機預備',lastCommType:'status',wifi:true,gps:false,
+            groupId:null,status:'開機預備',lastCommType:'status',hasCommand:false,wifi:true,gps:false,
             lat:null,lng:null,battery:msg.battery||100,lastMessage:'',
             lastSeen:Date.now(),ackPending:false,ackStatus:'',ackDeadline:null,
             landingTime:null,takeoffTime:null,towerConnected:false,

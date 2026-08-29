@@ -23,7 +23,7 @@
 #define GPS_RX_PIN    32   // Core2 PORT.A（外接I2C腳位，這裡改當UART用；訊號1=RXD）
 #define GPS_TX_PIN    33   // Core2 PORT.A（訊號2=TXD）
 #define GPS_BAUD      115200
-#define FW_VERSION    11
+#define FW_VERSION    12
 #define UPDATE_CHECK_URL "https://droneatis-production.up.railway.app/firmware/version.json"
 
 // ── NVS 儲存 ─────────────────────────────────────────────────────────────────
@@ -48,6 +48,7 @@ String roomCode       = "";
 String currentStatus  = "開機預備";
 String lastMessage    = "";
 bool showingMessage   = false;  // true=待命畫面顯示lastMessage，false=顯示currentStatus（兩者不同時顯示，看誰是最新的）
+bool everReceivedCommand = false;  // 塔台是否曾經真的發過指令/訊息；沒有的話開機畫面要顯示「等待塔台來訊」而不是預設的「開機預備」
 String landingTimeStr = "";
 String landingReason  = "";
 String groupName      = "";
@@ -140,6 +141,31 @@ int    kbMaxLen  = 20;
 void fXs(){ M5.Display.setFont(&fonts::efontTW_24); M5.Display.setTextSize(1); }
 void fSm(){ M5.Display.setFont(&fonts::efontTW_24); M5.Display.setTextSize(1); }
 void fLg(){ M5.Display.setFont(&fonts::efontTW_24); M5.Display.setTextSize(2); }
+
+// UTF-8 顯示寬度估算：中文全形算1個單位，英數半形算0.55個單位（String::length()是算bytes，中文一字3bytes會算錯）
+float estimateTextWidth(const String &s){
+  float units=0; size_t i=0, n=s.length();
+  while(i<n){
+    uint8_t c=(uint8_t)s[i];
+    if(c<0x80){ units+=0.55f; i+=1; }
+    else if((c&0xE0)==0xC0){ units+=1.0f; i+=2; }
+    else if((c&0xF0)==0xE0){ units+=1.0f; i+=3; }
+    else if((c&0xF8)==0xF0){ units+=1.0f; i+=4; }
+    else { i+=1; }
+  }
+  return units;
+}
+
+// 自由訊息依字數多寡自動縮放字體，避免長訊息超出螢幕、短訊息又顯得太小
+void drawFitText(String txt, int cx, int cy, uint16_t color){
+  float units=estimateTextWidth(txt); if(units<1) units=1;
+  float scale=300.0f/(24.0f*units);
+  if(scale>1.4f) scale=1.4f;
+  if(scale<0.55f) scale=0.55f;
+  M5.Display.setFont(&fonts::efontTW_24); M5.Display.setTextSize(scale);
+  M5.Display.setTextColor(color); M5.Display.setTextDatum(middle_center);
+  M5.Display.drawString(txt,cx,cy);
+}
 
 // ── 時間工具 ──────────────────────────────────────────────────────────────────
 String getNowTime(){
@@ -703,6 +729,7 @@ void webSocketEvent(WStype_t wsType, uint8_t* payload, size_t length){
         String lct=doc["lastCommType"]|"status";
         if(lct=="message"){ lastMessage=doc["lastMessage"]|""; showingMessage=(lastMessage.length()>0); }
         else { showingMessage=false; }
+        everReceivedCommand=(doc["hasCommand"]|false);
         currentScreen=SCR_IDLE; drawIdle(); beep3();
       }
       else if(type=="tower_connected"){
@@ -712,6 +739,7 @@ void webSocketEvent(WStype_t wsType, uint8_t* payload, size_t length){
       }
       else if(type=="command"||type=="follower_sync"){
         showingMessage=false;
+        everReceivedCommand=true;
         currentStatus=doc["status"].as<String>();
         bool immediateLand=doc["immediate"]|false;
         JsonVariant lt=doc["landingTime"];
@@ -738,6 +766,7 @@ void webSocketEvent(WStype_t wsType, uint8_t* payload, size_t length){
       }
       else if(type=="message"){
         showingMessage=true;
+        everReceivedCommand=true;
         lastMessage=doc["message"].as<String>(); landState=LAND_NONE;
         if(pilotMode==MODE_MASTER){ ackPending=true; ackReceivedAt=millis(); ackDeadline=millis()+30000; buzzPhase=0; }
         wakeScreen();
@@ -876,7 +905,9 @@ void drawIdle(){
 
   // 手動訊息跟選單狀態不同時顯示，看哪個是最新收到的
   if(showingMessage&&lastMessage.length()>0){
-    fSm(); M5.Display.setTextColor(CLR_WHITE); M5.Display.drawString(lastMessage,160,150);
+    drawFitText(lastMessage,160,150,CLR_WHITE);
+  } else if(!everReceivedCommand){
+    fSm(); M5.Display.setTextColor(CLR_GRAY); M5.Display.drawString("等待塔台來訊",160,150);
   } else if(hasReason){
     M5.Display.setTextColor(sc);
     fSm(); M5.Display.drawString(currentStatus,160,140);
@@ -962,7 +993,7 @@ void drawMessage(){
   M5.Display.fillRect(0,32,320,26,CLR_ACCENT);
   fXs(); M5.Display.setTextDatum(middle_center); M5.Display.setTextColor(CLR_BG);
   M5.Display.drawString("塔台訊息",160,45);
-  fSm(); M5.Display.setTextColor(CLR_WHITE); M5.Display.drawString(lastMessage,160,120);
+  drawFitText(lastMessage,160,120,CLR_WHITE);
   if(pilotMode==MODE_MASTER) drawAckButton();
   else { fXs(); M5.Display.setTextColor(CLR_GRAY); M5.Display.drawString("跟隨模式 · 僅顯示",160,200); }
 }

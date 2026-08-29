@@ -1,5 +1,5 @@
 {
-  "version": 11,
-  "notes": "修正跟隨端開機一直卡在開機預備；塔台介面同步顯示最新狀態或訊息",
+  "version": 12,
+  "notes": "區分「從未收過指令」與「塔台真的送開機預備」；自由訊息依字數自動縮放字體",
   "url": "https://droneatis-production.up.railway.app/firmware/esp32_pilot.bin"
 }
