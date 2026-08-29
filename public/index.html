@@ -393,12 +393,17 @@ function handle(msg){
 function renderAll(){renderPilots();renderGroups();renderLog();updateNameBtn();}
 
 // ── 主要：飛手列表 ──────────────────────────────────────────────
+// 飛手畫面現在只會顯示「狀態」或「手動訊息」兩者中最新收到的那個，塔台這邊比照顯示同一個
+function pilotHeadline(p){
+  return (p.lastCommType==='message'&&p.lastMessage)?p.lastMessage:(p.status||'開機預備');
+}
+
 function updatePilotStatus(p){
   const card=document.getElementById('pc_'+p.clientId);
   if(!card) return;
   // 更新狀態文字
   const sub=card.querySelector('.pilot-sub');
-  if(sub) sub.textContent=`${p.status||'開機預備'} · 電量 ${p.battery??'—'}%`;
+  if(sub) sub.textContent=`${pilotHeadline(p)} · 電量 ${p.battery??'—'}%`;
   // 更新下拉選單顯示的狀態（不影響使用者正在選的）
   const sel=card.querySelector('.cmd-select');
   if(sel&&document.activeElement!==sel) sel.value=p.status||'開機預備';
@@ -572,7 +577,7 @@ function pilotCardHTML(p){
       </div>
       <div class="pilot-info">
         <div class="pilot-name">${p.name}</div>
-        <div class="pilot-sub">${p.status||'開機預備'} · 電量 ${p.battery??'—'}%</div>
+        <div class="pilot-sub">${escapeHtml(pilotHeadline(p))} · 電量 ${p.battery??'—'}%</div>
         ${(p.followers&&p.followers.length>0)?`<div class="followers-line" style="font-size:13px;color:var(--ac);margin-top:2px">👥 跟隨: ${p.followers.map(f=>f.name).join(', ')}</div>`:''}
       </div>
       <div class="tag-row">

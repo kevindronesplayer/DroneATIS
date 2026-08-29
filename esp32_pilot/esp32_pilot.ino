@@ -23,7 +23,7 @@
 #define GPS_RX_PIN    32   // Core2 PORT.A（外接I2C腳位，這裡改當UART用；訊號1=RXD）
 #define GPS_TX_PIN    33   // Core2 PORT.A（訊號2=TXD）
 #define GPS_BAUD      115200
-#define FW_VERSION    10
+#define FW_VERSION    11
 #define UPDATE_CHECK_URL "https://droneatis-production.up.railway.app/firmware/version.json"
 
 // ── NVS 儲存 ─────────────────────────────────────────────────────────────────
@@ -687,6 +687,22 @@ void webSocketEvent(WStype_t wsType, uint8_t* payload, size_t length){
         towerConnected=true;
         groupName=doc["groupName"]|""; towerName=doc["towerName"]|"塔台"; towerType=doc["towerType"]|"南塔";
         notamCode=doc["notam"]|""; rwyDir=doc["rwy"]|"";
+        // 加入時同步主控目前的狀態/降落時間/訊息，避免跟隨端一直卡在開機的預設值
+        currentStatus=doc["status"]|"開機預備";
+        landingReason="";
+        JsonVariant lt=doc["landingTime"];
+        if(lt.isNull()||lt.as<String>()=="null"||lt.as<String>()=="") landingTimeStr="";
+        else {
+          String raw=lt.as<String>();
+          if(raw.length()>=4&&isDigit(raw[0])&&isDigit(raw[1])&&isDigit(raw[2])&&isDigit(raw[3])){
+            landingTimeStr=raw.substring(0,4);
+            if(raw.length()>4) landingReason=raw.substring(4);
+          } else landingTimeStr=raw;
+        }
+        landState=(currentStatus=="降落")?LAND_WAIT_ACK:LAND_NONE;
+        String lct=doc["lastCommType"]|"status";
+        if(lct=="message"){ lastMessage=doc["lastMessage"]|""; showingMessage=(lastMessage.length()>0); }
+        else { showingMessage=false; }
         currentScreen=SCR_IDLE; drawIdle(); beep3();
       }
       else if(type=="tower_connected"){
