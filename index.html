@@ -365,7 +365,7 @@ function handle(msg){
   else if(msg.type==='groups_update'){groups=msg.groups;renderGroups();renderPilots();}
   else if(msg.type==='session_ended'){showToast(`${msg.pilotName} 已結束作業`);}
   else if(msg.type==='pilot_asking'){
-    showAskAlert(msg.pilotName, msg.clientId);
+    showAskAlert(msg.pilotName, msg.clientId, msg.askType);
   }
   else if(msg.type==='pilot_notam_update'){
     // 直接更新對應飛手的 notam
@@ -927,11 +927,12 @@ function processAlertQueue(){
   setTimeout(finish,duration);
 }
 
-function showAskAlert(name, cid){
+function showAskAlert(name, cid, askType){
   queueAlert(()=>{
     const el=document.createElement('div');
     el.style.cssText='position:fixed;top:60px;left:50%;transform:translateX(-50%);background:#ff3d57;color:#fff;padding:14px 20px;border-radius:12px;z-index:400;font-size:26px;font-weight:600;text-align:center;box-shadow:0 4px 20px rgba(255,61,87,.4);min-width:220px;cursor:pointer;';
-    el.innerHTML=`⚠️ ${name} 詢問機場狀況<br><span style="font-size:19px;font-weight:400;opacity:.8">點擊關閉</span>`;
+    const label=askType==='duration'?'詢問放行時長':'詢問機場狀況';
+    el.innerHTML=`⚠️ ${name} ${label}<br><span style="font-size:19px;font-weight:400;opacity:.8">點擊關閉</span>`;
     const card=document.getElementById('pc_'+cid);
     if(card){card.style.background='rgba(0,212,255,0.12)';setTimeout(()=>card.style.background='',5000);}
     return el;

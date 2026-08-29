@@ -179,6 +179,7 @@ function updateGroupStatus(groupId,status,landingTime,immediate){
     const p=pilots.get(cid); if(!p) return;
     applyStatus(p,status,landingTime);
     toPilot(cid,{type:'command',status,landingTime:landingTime||null,immediate:!!immediate,groupName:groupName(groupId)});
+    toFollowers(cid,{type:'follower_sync',status,landingTime:landingTime||null,immediate:!!immediate,groupName:groupName(groupId)});
   });
   toTower({type:'pilots_update',pilots:pilotSnap()});
 }
@@ -453,8 +454,9 @@ wss.on('connection',ws=>{
       case 'pilot_ask_status':{
         const pilot=pilots.get(conn.clientId);
         const name=pilot?pilot.name:msg.pilotName;
-        pushComm(name,'pilot','詢問機場狀況');
-        toTower({type:'pilot_asking',pilotName:name,clientId:conn.clientId});
+        const askType=msg.askType==='duration'?'duration':'airport';
+        pushComm(name,'pilot',askType==='duration'?'詢問放行時長':'詢問機場狀況');
+        toTower({type:'pilot_asking',pilotName:name,clientId:conn.clientId,askType});
         break;
       }
 

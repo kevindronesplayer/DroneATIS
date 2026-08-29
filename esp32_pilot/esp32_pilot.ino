@@ -23,7 +23,7 @@
 #define GPS_RX_PIN    32   // Core2 PORT.A（外接I2C腳位，這裡改當UART用；訊號1=RXD）
 #define GPS_TX_PIN    33   // Core2 PORT.A（訊號2=TXD）
 #define GPS_BAUD      115200
-#define FW_VERSION    9
+#define FW_VERSION    10
 #define UPDATE_CHECK_URL "https://droneatis-production.up.railway.app/firmware/version.json"
 
 // ── NVS 儲存 ─────────────────────────────────────────────────────────────────
@@ -47,6 +47,7 @@ String clientId       = "";
 String roomCode       = "";
 String currentStatus  = "開機預備";
 String lastMessage    = "";
+bool showingMessage   = false;  // true=待命畫面顯示lastMessage，false=顯示currentStatus（兩者不同時顯示，看誰是最新的）
 String landingTimeStr = "";
 String landingReason  = "";
 String groupName      = "";
@@ -694,6 +695,7 @@ void webSocketEvent(WStype_t wsType, uint8_t* payload, size_t length){
         currentScreen=SCR_IDLE; drawIdle(); beep3();
       }
       else if(type=="command"||type=="follower_sync"){
+        showingMessage=false;
         currentStatus=doc["status"].as<String>();
         bool immediateLand=doc["immediate"]|false;
         JsonVariant lt=doc["landingTime"];
@@ -719,6 +721,7 @@ void webSocketEvent(WStype_t wsType, uint8_t* payload, size_t length){
         currentScreen=SCR_COMMAND; drawCommand(); buzz(1000,300);
       }
       else if(type=="message"){
+        showingMessage=true;
         lastMessage=doc["message"].as<String>(); landState=LAND_NONE;
         if(pilotMode==MODE_MASTER){ ackPending=true; ackReceivedAt=millis(); ackDeadline=millis()+30000; buzzPhase=0; }
         wakeScreen();
@@ -848,38 +851,33 @@ void drawIdle(){
     M5.Display.drawString("["+groupName+"]",8,96);
   }
 
-  if(lastMessage.length()>0){
-    fXs(); M5.Display.setTextDatum(middle_center); M5.Display.setTextColor(CLR_WHITE);
-    M5.Display.drawString("訊息: "+lastMessage,160,114);
-  }
-
   uint16_t sc=CLR_WHITE;
   if(currentStatus=="可以起飛") sc=CLR_GREEN;
   else if(currentStatus=="降落") sc=CLR_AMBER;
 
-  bool hasStatus=(currentStatus!="開機預備"&&currentStatus.length()>0);
   bool hasReason=(currentStatus=="降落"&&landingTimeStr.length()>0&&landingReason.length()>0);
   M5.Display.setTextDatum(middle_center);
 
-  if(hasStatus){
+  // 手動訊息跟選單狀態不同時顯示，看哪個是最新收到的
+  if(showingMessage&&lastMessage.length()>0){
+    fSm(); M5.Display.setTextColor(CLR_WHITE); M5.Display.drawString(lastMessage,160,150);
+  } else if(hasReason){
     M5.Display.setTextColor(sc);
-    if(hasReason){
-      fSm(); M5.Display.drawString(currentStatus,160,140);
-      M5.Display.drawString("降落 "+getLandTimeDisplay(),160,168);
-      fXs(); M5.Display.setTextColor(CLR_WHITE); M5.Display.drawString(landingReason,160,190);
-    } else {
-      fLg(); M5.Display.drawString(currentStatus,160,150);
-      if(currentStatus=="降落"&&landingTimeStr.length()>0){
-        fSm(); M5.Display.setTextColor(CLR_AMBER);
-        M5.Display.drawString("降落 "+getLandTimeDisplay(),160,178);
-      }
-      if(currentStatus=="可以起飛"&&pilotMode==MODE_MASTER){
-        M5.Display.fillRoundRect(20,180,280,34,10,0x3000); M5.Display.drawRoundRect(20,180,280,34,10,CLR_AMBER);
-        fSm(); M5.Display.setTextColor(CLR_AMBER); M5.Display.drawString("長按3秒回報降落",160,197);
-      }
-    }
+    fSm(); M5.Display.drawString(currentStatus,160,140);
+    M5.Display.drawString("降落 "+getLandTimeDisplay(),160,168);
+    fXs(); M5.Display.setTextColor(CLR_WHITE); M5.Display.drawString(landingReason,160,190);
   } else {
-    fSm(); M5.Display.setTextColor(CLR_GRAY); M5.Display.drawString("等待塔台來訊",160,150);
+    M5.Display.setTextColor(sc);
+    fLg(); M5.Display.drawString(currentStatus,160,150);
+    if(currentStatus=="降落"&&landingTimeStr.length()>0){
+      fSm(); M5.Display.setTextColor(CLR_AMBER);
+      M5.Display.drawString("降落 "+getLandTimeDisplay(),160,178);
+    }
+  }
+  // 飛行中的降落回報按鈕：不管上面顯示的是狀態還是訊息，都要能點得到
+  if(currentStatus=="可以起飛"&&pilotMode==MODE_MASTER){
+    M5.Display.fillRoundRect(20,180,280,34,10,0x3000); M5.Display.drawRoundRect(20,180,280,34,10,CLR_AMBER);
+    fSm(); M5.Display.setTextColor(CLR_AMBER); M5.Display.drawString("長按3秒回報降落",160,197);
   }
 
   // 底部按鍵說明（對應3個實體按鍵 A/B/C）
@@ -1370,8 +1368,17 @@ void handleButtons(){
   }
   if(M5.BtnC.wasClicked()){
     if(pilotMode==MODE_FOLLOWER) return;
-    if(currentStatus=="可以起飛"){ M5.Display.fillRect(20,200,280,26,CLR_SURFACE); fXs();M5.Display.setTextDatum(middle_center); M5.Display.setTextColor(CLR_RED); M5.Display.drawString("飛行中不可詢問",160,213); buzz(500,200); }
-    else if(wsConnected){ StaticJsonDocument<64> doc; doc["type"]="pilot_ask_status";doc["pilotName"]=pilotName; String o;serializeJson(doc,o);wsClient.sendTXT(o); M5.Display.fillRect(40,200,240,26,CLR_SURFACE); fXs();M5.Display.setTextDatum(middle_center); M5.Display.setTextColor(CLR_ACCENT); M5.Display.drawString("已詢問塔台機場狀況",160,213); buzz(880,80); }
+    if(wsConnected){
+      bool duringFlight=(currentStatus=="可以起飛");
+      StaticJsonDocument<64> doc;
+      doc["type"]="pilot_ask_status"; doc["pilotName"]=pilotName;
+      doc["askType"]=duringFlight?"duration":"airport";
+      String o; serializeJson(doc,o); wsClient.sendTXT(o);
+      M5.Display.fillRect(20,200,280,26,CLR_SURFACE); fXs(); M5.Display.setTextDatum(middle_center);
+      M5.Display.setTextColor(CLR_ACCENT);
+      M5.Display.drawString(duringFlight?"已詢問塔台放行時長":"已詢問塔台機場狀況",160,213);
+      buzz(880,80);
+    }
   }
   if(M5.BtnPWR.wasClicked()){
     if(currentScreen==SCR_CHARGING){ M5.Display.setBrightness(BRIGHT_VAL[brightnessLevel]); currentScreen=SCR_BOOT; }

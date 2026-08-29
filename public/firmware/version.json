@@ -1,5 +1,5 @@
 {
-  "version": 9,
-  "notes": "結束任務後自動跳出關機確認；修正更多按鈕誤觸名字",
+  "version": 10,
+  "notes": "修正跟隨模式收不到分類指令；訊息與狀態不再同時顯示；飛行中詢問改為放行時長",
   "url": "https://droneatis-production.up.railway.app/firmware/esp32_pilot.bin"
 }
