@@ -1,0 +1,631 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=no">
+<title>DroneATIS 飛手</title>
+<style>
+:root{--bg:#0a0e1a;--sf:#131929;--sf2:#1c2438;--sf3:#242e45;--ac:#00d4ff;--gr:#00e676;--rd:#ff3d57;--am:#ffa726;--tx:#e8f0fe;--tx2:#8899bb;--bd:rgba(255,255,255,0.07);--r:12px;--rs:8px;}
+*{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent;}
+body{font-family:-apple-system,'Noto Sans TC',sans-serif;background:var(--bg);color:var(--tx);height:100dvh;display:flex;flex-direction:column;overflow:hidden;}
+.page{display:none;flex:1;flex-direction:column;overflow-y:auto;}
+.page.active{display:flex;}
+.center-page{align-items:center;justify-content:center;text-align:center;padding:24px;gap:16px;}
+.logo{font-size:28px;font-weight:700;color:var(--ac);}
+.sub{font-size:17px;color:var(--tx2);}
+input[type=text],input[type=number]{width:100%;max-width:320px;background:var(--sf2);border:1px solid var(--bd);color:var(--tx);border-radius:var(--rs);padding:14px 16px;font-size:22px;font-family:inherit;outline:none;text-align:center;}
+input[type=text]:focus,input[type=number]:focus{border-color:var(--ac);}
+.btn{background:var(--ac);color:#000;border:none;border-radius:var(--rs);padding:16px 20px;font-size:20px;font-weight:700;cursor:pointer;font-family:inherit;width:100%;max-width:320px;}
+.btn:active{opacity:.8;}
+.btn.gray{background:var(--sf3);color:var(--tx);}
+.btn.red{background:var(--rd);color:#fff;}
+.btn.green{background:var(--gr);color:#000;}
+.btn.amber{background:var(--am);color:#000;}
+.btn.outline{background:transparent;border:1px solid var(--bd);color:var(--tx2);}
+.card{background:var(--sf);border:1px solid var(--bd);border-radius:var(--r);padding:20px;width:100%;max-width:340px;}
+.mode-btn{width:100%;max-width:340px;background:var(--sf);border:2px solid var(--bd);border-radius:var(--r);padding:22px;text-align:center;cursor:pointer;}
+.mode-btn .t{font-size:22px;font-weight:700;color:var(--ac);}
+.mode-btn .d{font-size:15px;color:var(--tx2);margin-top:4px;}
+.mode-btn.follower .t{color:var(--gr);}
+.code-box{font-size:48px;font-weight:700;letter-spacing:10px;color:var(--ac);background:var(--sf);border:1px solid var(--bd);border-radius:var(--r);padding:20px 30px;}
+.keypad{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;width:100%;max-width:340px;}
+.kp-btn{background:var(--sf2);border:1px solid var(--bd);color:var(--tx);border-radius:var(--rs);padding:20px 0;font-size:26px;font-weight:700;cursor:pointer;}
+.kp-btn:active{background:var(--sf3);}
+
+/* ── 主畫面 ── */
+#scrMain{padding:0;}
+.topbar{display:flex;align-items:center;justify-content:space-between;padding:12px 16px;background:var(--sf);border-bottom:1px solid var(--bd);flex-shrink:0;gap:10px;}
+.topbar .name{font-weight:700;color:var(--ac);font-size:18px;flex:1;text-align:center;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.dot{width:10px;height:10px;border-radius:50%;background:var(--rd);flex-shrink:0;}
+.dot.on{background:var(--gr);}
+.iconbtn{background:var(--sf3);border:1px solid var(--bd);color:var(--tx2);border-radius:6px;padding:6px 10px;font-size:13px;cursor:pointer;flex-shrink:0;}
+
+.body{flex:1;overflow-y:auto;padding:14px;display:flex;flex-direction:column;gap:12px;}
+.notam-row{display:flex;align-items:center;gap:8px;background:var(--sf);border:1px solid var(--bd);border-radius:var(--rs);padding:10px 14px;}
+.notam-row .lbl{font-size:14px;color:var(--tx2);}
+.notam-row .val{font-size:16px;font-weight:700;color:var(--am);flex:1;}
+.notam-row input{flex:1;background:var(--sf2);border:1px solid var(--bd);color:var(--tx);border-radius:6px;padding:6px 8px;font-size:15px;font-family:monospace;letter-spacing:2px;outline:none;}
+.meta-row{display:flex;gap:8px;font-size:13px;color:var(--ac);}
+.meta-row span{background:var(--sf);border:1px solid var(--bd);border-radius:99px;padding:3px 10px;}
+
+.status-card{background:var(--sf);border:1px solid var(--bd);border-radius:var(--r);padding:26px 18px;text-align:center;flex-shrink:0;}
+.status-card .headline{font-weight:700;color:var(--tx);word-break:break-word;line-height:1.35;}
+.status-card .land-time{color:var(--am);font-size:20px;margin-top:8px;font-weight:700;}
+.status-card .land-count{color:var(--tx2);font-size:15px;margin-top:4px;}
+.status-card .land-reason{color:var(--tx);font-size:15px;margin-top:6px;}
+.tag-pending{display:inline-block;margin-top:10px;background:var(--am);color:#000;font-size:13px;font-weight:700;border-radius:99px;padding:4px 12px;}
+
+.action-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;}
+.action-grid .btn{max-width:none;font-size:17px;padding:16px 8px;}
+.land-btn{background:var(--am);color:#000;font-weight:700;padding:18px;border-radius:var(--r);border:none;font-size:18px;width:100%;cursor:pointer;}
+.readonly-banner{text-align:center;color:var(--ac);font-size:14px;padding:10px;background:var(--sf);border-radius:var(--rs);border:1px solid var(--bd);}
+
+.footer-actions{display:flex;gap:8px;padding:10px 14px 16px;flex-shrink:0;}
+.footer-actions .btn{max-width:none;font-size:14px;padding:10px 6px;}
+
+.toast{position:fixed;bottom:90px;left:50%;transform:translateX(-50%);background:var(--sf3);color:var(--tx);padding:10px 18px;border-radius:99px;font-size:15px;z-index:300;opacity:0;transition:opacity .3s;pointer-events:none;white-space:nowrap;border:1px solid var(--bd);max-width:90vw;overflow:hidden;text-overflow:ellipsis;}
+.toast.show{opacity:1;}
+
+.modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,.6);display:none;align-items:center;justify-content:center;z-index:500;padding:20px;}
+.modal-overlay.show{display:flex;}
+.modal{background:var(--sf);border-radius:var(--r);padding:22px;width:100%;max-width:340px;display:flex;flex-direction:column;gap:14px;}
+.modal h3{font-size:19px;color:var(--ac);text-align:center;}
+.modal .row{display:flex;gap:10px;}
+.modal .row .btn{flex:1;max-width:none;}
+</style>
+</head>
+<body>
+
+<!-- 姓名輸入 -->
+<div class="page center-page active" id="scrName">
+  <div class="logo">DroneATIS</div>
+  <div class="sub">飛手行動裝置</div>
+  <input type="text" id="nameInput" placeholder="輸入你的名字" maxlength="10">
+  <button class="btn" id="btnNameNext">下一步</button>
+</div>
+
+<!-- 模式選擇 -->
+<div class="page center-page" id="scrMode">
+  <div class="logo">DroneATIS</div>
+  <div class="sub" id="modeSubName"></div>
+  <div class="mode-btn" id="btnPickMaster">
+    <div class="t">主控模式</div>
+    <div class="d">獨立連線，可回應塔台</div>
+  </div>
+  <div class="mode-btn follower" id="btnPickFollower">
+    <div class="t">跟隨模式</div>
+    <div class="d">跟隨主控，僅顯示資訊</div>
+  </div>
+  <button class="btn outline" id="btnChangeName" style="margin-top:6px">更改名字</button>
+</div>
+
+<!-- 主控：顯示序號 -->
+<div class="page center-page" id="scrCode">
+  <div class="logo">DroneATIS</div>
+  <div class="sub">請將序號告知塔台人員</div>
+  <div class="code-box" id="codeText">----</div>
+  <div class="sub">序號由數字 1-4 組成，有效24小時</div>
+  <div class="sub" id="codeWaiting">等待塔台連線...</div>
+</div>
+
+<!-- 跟隨：輸入序號 -->
+<div class="page center-page" id="scrFollowerCode">
+  <div class="logo">DroneATIS</div>
+  <div class="sub">輸入主控序號（4碼，數字1-4）</div>
+  <div class="code-box" id="followerBuf" style="min-width:220px">____</div>
+  <div class="keypad">
+    <div class="kp-btn" data-k="1">1</div><div class="kp-btn" data-k="2">2</div>
+    <div class="kp-btn" data-k="3">3</div><div class="kp-btn" data-k="4">4</div>
+  </div>
+  <div class="row" style="display:flex;gap:10px;width:100%;max-width:340px;">
+    <button class="btn gray" id="btnFollowerClr" style="max-width:none;">清除</button>
+    <button class="btn" id="btnFollowerOk" style="max-width:none;">確認</button>
+  </div>
+  <button class="btn outline" id="btnFollowerBack">‹ 返回選擇模式</button>
+</div>
+
+<!-- 主畫面 -->
+<div class="page" id="scrMain">
+  <div class="topbar">
+    <div class="dot" id="connDot"></div>
+    <div class="name" id="mainName"></div>
+    <div class="iconbtn" id="btnMoreMenu">更多</div>
+  </div>
+  <div class="body">
+    <div class="meta-row" id="metaRow" style="display:none;"></div>
+    <div class="notam-row" id="notamRow">
+      <span class="lbl">飛航公告</span>
+      <span class="val" id="notamVal">未設定</span>
+      <span class="iconbtn" id="btnNotamEdit" style="display:none;">輸入</span>
+    </div>
+    <div class="status-card">
+      <div class="headline" id="headlineText" style="font-size:26px;">等待塔台來訊</div>
+      <div class="land-time" id="landTimeText" style="display:none;"></div>
+      <div class="land-count" id="landCountText" style="display:none;"></div>
+      <div class="land-reason" id="landReasonText" style="display:none;"></div>
+      <div class="tag-pending" id="pendingTag" style="display:none;">等待回應</div>
+    </div>
+    <div id="landBtnWrap" style="display:none;">
+      <button class="land-btn" id="btnLandReport">回報降落</button>
+    </div>
+    <div id="ackWrap" style="display:none;">
+      <button class="btn green" id="btnAck" style="max-width:none;">收到</button>
+    </div>
+    <div id="masterActions" style="display:none;">
+      <div class="action-grid">
+        <button class="btn amber" id="btnAsk">詢問機場狀況</button>
+        <button class="btn" id="btnTurnpoint">轉點</button>
+      </div>
+    </div>
+    <div class="readonly-banner" id="followerBanner" style="display:none;">跟隨模式 · 僅顯示</div>
+  </div>
+  <div class="footer-actions" id="footerActions">
+    <button class="btn outline" id="btnGps">GPS：關閉</button>
+    <button class="btn outline red" id="btnEndSession">結束任務</button>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<!-- 更多選單 -->
+<div class="modal-overlay" id="moreModal">
+  <div class="modal">
+    <h3>更多功能</h3>
+    <button class="btn outline" id="btnRename">更改名字</button>
+    <button class="btn outline" id="btnBackToModeSel">返回選擇模式</button>
+    <button class="btn gray" id="btnCloseMore">關閉</button>
+  </div>
+</div>
+
+<!-- 公告輸入 -->
+<div class="modal-overlay" id="notamModal">
+  <div class="modal">
+    <h3>輸入飛航公告（U + 4碼）</h3>
+    <input type="text" id="notamInput" maxlength="4" inputmode="numeric" placeholder="4個數字">
+    <div class="row"><button class="btn gray" id="btnNotamCancel">取消</button><button class="btn" id="btnNotamOk">確定</button></div>
+  </div>
+</div>
+
+<!-- 是否轉點（公告二次輸入） -->
+<div class="modal-overlay" id="notamTurnModal">
+  <div class="modal">
+    <h3>是否轉點？</h3>
+    <div class="row"><button class="btn gray" id="btnNotamTurnNo">否</button><button class="btn" id="btnNotamTurnYes">是</button></div>
+  </div>
+</div>
+
+<!-- 轉點分鐘數 -->
+<div class="modal-overlay" id="minutesModal">
+  <div class="modal">
+    <h3 id="minutesTitle">轉點時間（大約幾分鐘）</h3>
+    <input type="number" id="minutesInput" inputmode="numeric" placeholder="分鐘數" min="1">
+    <div class="row"><button class="btn gray" id="btnMinutesCancel">取消</button><button class="btn" id="btnMinutesOk">送出</button></div>
+  </div>
+</div>
+
+<!-- 降落確認 -->
+<div class="modal-overlay" id="landModal">
+  <div class="modal">
+    <h3>確定回報降落？</h3>
+    <div class="row"><button class="btn gray" id="btnLandCancel">取消</button><button class="btn amber" id="btnLandOk">確定</button></div>
+  </div>
+</div>
+
+<!-- 結束任務確認 -->
+<div class="modal-overlay" id="endModal">
+  <div class="modal">
+    <h3>確定結束任務？</h3>
+    <div class="row"><button class="btn gray" id="btnEndCancel">取消</button><button class="btn red" id="btnEndOk">確定</button></div>
+  </div>
+</div>
+
+<!-- 改名 -->
+<div class="modal-overlay" id="renameModal">
+  <div class="modal">
+    <h3>更改名字</h3>
+    <input type="text" id="renameInput" maxlength="10">
+    <div class="row"><button class="btn gray" id="btnRenameCancel">取消</button><button class="btn" id="btnRenameOk">確定</button></div>
+  </div>
+</div>
+
+<script>
+// ── 狀態 ──────────────────────────────────────────────────────────────
+let ws=null, wsConnecting=false, wsConnected=false;
+let pilotMode=null;        // 'master' | 'follower'
+let pilotName=localStorage.getItem('pilotName')||'';
+let clientId='', roomCode='', masterCode='';
+let towerConnected=false, towerName='塔台', towerTypeStr='南塔', groupName='';
+let notamCode='', rwyDir='';
+let currentStatus='開機預備', lastMessage='', showingMessage=false, everReceivedCommand=false;
+let landingTimeStr='', landingReason='';
+let ackPending=false, ackDeadline=0;
+let landState='none'; // none | wait_ack | countdown
+let turnBtnLabel='就位';
+let turnpointSource=0; // 1=按鈕觸發, 2=公告二次輸入觸發
+let notamHadValue=false;
+let gpsEnabled=false, gpsWatchId=null, gpsLat=null, gpsLng=null;
+let heartbeatTimer=null, clockTimer=null, reconnectTimer=null;
+let hasBeenTowerConnectedRecently=false;
+
+function $(id){return document.getElementById(id);}
+function showPage(id){document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));$(id).classList.add('active');}
+function showModal(id){$(id).classList.add('show');}
+function hideModal(id){$(id).classList.remove('show');}
+function showToast(msg){const t=$('toast');t.textContent=msg;t.classList.add('show');clearTimeout(t._h);t._h=setTimeout(()=>t.classList.remove('show'),2500);}
+
+// ── WebSocket ────────────────────────────────────────────────────────
+function send(d){ if(ws&&ws.readyState===1) ws.send(JSON.stringify(d)); }
+
+function connect(){
+  if(wsConnecting||wsConnected) return;
+  wsConnecting=true;
+  const wsProtocol = location.protocol==='https:'?'wss:':'ws:';
+  ws=new WebSocket(`${wsProtocol}//${location.host}`);
+  ws.onopen=()=>{
+    wsConnecting=false; wsConnected=true; updateConnDot();
+    if(pilotMode==='master') send({type:'pilot_register',name:pilotName,battery:getBattery(),gps:false});
+    else if(pilotMode==='follower') send({type:'follower_register',name:pilotName,masterCode});
+  };
+  ws.onclose=()=>{ wsConnecting=false; wsConnected=false; updateConnDot(); scheduleReconnect(); };
+  ws.onerror=()=>{ try{ws.close();}catch(e){} };
+  ws.onmessage=e=>{ let msg; try{msg=JSON.parse(e.data);}catch(err){return;} handle(msg); };
+}
+function scheduleReconnect(){
+  clearTimeout(reconnectTimer);
+  reconnectTimer=setTimeout(()=>{ if(pilotMode) connect(); },4000);
+}
+function updateConnDot(){
+  const ok=wsConnected&&towerConnected;
+  $('connDot').classList.toggle('on', pilotMode==='follower'? wsConnected : ok);
+}
+function getBattery(){
+  return 100; // 網頁版無法讀取硬體電量，固定回報100
+}
+
+// ── 訊息處理 ─────────────────────────────────────────────────────────
+function handle(msg){
+  switch(msg.type){
+    case 'registered':
+      clientId=msg.clientId; roomCode=msg.roomCode;
+      if(msg.reconnect && towerConnected){ /* 已連線過，保持現在畫面 */ }
+      else { $('codeText').textContent=roomCode; showPage('scrCode'); }
+      break;
+    case 'follower_registered':
+      clientId=msg.clientId; towerConnected=true;
+      groupName=msg.groupName||''; towerName=msg.towerName||'塔台'; towerTypeStr=msg.towerType||'南塔';
+      notamCode=msg.notam||''; rwyDir=msg.rwy||'';
+      currentStatus=msg.status||'開機預備';
+      applyLandingTime(msg.landingTime);
+      landState=(currentStatus==='降落')?'wait_ack':'none';
+      if(msg.lastCommType==='message'){ lastMessage=msg.lastMessage||''; showingMessage=!!lastMessage; }
+      else showingMessage=false;
+      everReceivedCommand=!!msg.hasCommand;
+      enterMain();
+      break;
+    case 'follower_error':
+      showToast('⚠️ '+(msg.message||'序號無效或已過期'));
+      break;
+    case 'tower_connected':
+      towerConnected=true;
+      groupName=msg.groupName||''; towerName=msg.towerName||'塔台'; towerTypeStr=msg.towerType||'南塔';
+      enterMain();
+      break;
+    case 'command': case 'follower_sync':
+      showingMessage=false; everReceivedCommand=true;
+      currentStatus=msg.status;
+      if(msg.immediate){
+        const total=(getNowTotalSecs()+60)%86400;
+        landingTimeStr=String(Math.floor(total/3600)).padStart(2,'0')+String(Math.floor(total/60)%60).padStart(2,'0');
+        landingReason='';
+      } else applyLandingTime(msg.landingTime);
+      if(msg.groupName!==undefined && msg.groupName!=='') groupName=msg.groupName;
+      landState=(currentStatus==='降落')?'wait_ack':'none';
+      if(pilotMode==='master'){ ackPending=true; ackDeadline=Date.now()+30000; }
+      renderMain(); beep(880); vibrate();
+      break;
+    case 'message':
+      showingMessage=true; everReceivedCommand=true;
+      lastMessage=msg.message; landState='none';
+      if(pilotMode==='master'){ ackPending=true; ackDeadline=Date.now()+30000; }
+      renderMain(); beep(660); vibrate();
+      break;
+    case 'group_update':
+      groupName=msg.groupName||''; if(msg.towerName) towerName=msg.towerName;
+      renderMain();
+      break;
+    case 'rwy_update':
+      rwyDir=msg.rwy||''; showToast('✈ 跑道改 '+rwyDir); renderMain();
+      break;
+    case 'notam_update':
+      notamCode=msg.notam||''; renderMain();
+      break;
+    case 'ack_overdue':
+      if(pilotMode==='master'){ showToast('⚠️ 尚未回應塔台指令'); beep(440); vibrate(); }
+      break;
+    case 'follower_ack_sync':
+      if(msg.ackType==='ack'||msg.ackType==='takeoff'){ landState='none'; }
+      else if(msg.ackType==='landing_ack'){ landState='countdown'; }
+      else if(msg.ackType==='landing_done'){ landState='none'; }
+      renderMain();
+      break;
+    case 'pilot_notam_update':
+      // 塔台可能由其他來源更新（正常情況這裡不會收到自己那份，安全略過）
+      break;
+    case 'session_ended':
+      showToast('已通知塔台'); ackPending=false; renderMain();
+      break;
+  }
+}
+
+function applyLandingTime(raw){
+  landingReason='';
+  if(!raw){ landingTimeStr=''; return; }
+  const s=String(raw);
+  if(s.length>=4 && /^\d{4}/.test(s)){
+    landingTimeStr=s.slice(0,4);
+    if(s.length>4) landingReason=s.slice(4);
+  } else landingTimeStr=s;
+}
+function getNowTotalSecs(){ const d=new Date(); return d.getHours()*3600+d.getMinutes()*60+d.getSeconds(); }
+function landTimeSecs(){
+  if(!landingTimeStr||landingTimeStr.length<4) return 0;
+  const lh=parseInt(landingTimeStr.slice(0,2),10), lm=parseInt(landingTimeStr.slice(2,4),10);
+  return lh*3600+lm*60+59;
+}
+function getLandTimeDisplay(){
+  if(!landingTimeStr||landingTimeStr.length<4) return '';
+  return landingTimeStr.slice(0,2)+':'+landingTimeStr.slice(2,4);
+}
+
+// ── 畫面切換 ─────────────────────────────────────────────────────────
+function enterMain(){
+  $('mainName').textContent=pilotName;
+  $('followerBanner').style.display = pilotMode==='follower' ? 'block' : 'none';
+  $('masterActions').style.display = pilotMode==='master' ? 'block' : 'none';
+  $('footerActions').style.display = pilotMode==='master' ? 'flex' : 'none';
+  $('btnNotamEdit').style.display = pilotMode==='master' ? 'inline-block' : 'none';
+  showPage('scrMain');
+  renderMain();
+  startHeartbeat();
+  if(!clockTimer) clockTimer=setInterval(renderCountdown,1000);
+}
+
+function renderMain(){
+  updateConnDot();
+  $('notamVal').textContent = notamCode || (pilotMode==='master' ? '點擊輸入' : '未設定');
+  $('notamVal').style.color = notamCode ? 'var(--am)' : 'var(--tx2)';
+
+  const metaBits=[];
+  if(towerConnected) metaBits.push((towerTypeStr||'')+' '+(towerName||'塔台'));
+  if(groupName) metaBits.push('['+groupName+']');
+  if(rwyDir) metaBits.push(rwyDir);
+  if(metaBits.length){ $('metaRow').style.display='flex'; $('metaRow').innerHTML=metaBits.map(b=>`<span>${escapeHtml(b)}</span>`).join(''); }
+  else $('metaRow').style.display='none';
+
+  const headline=$('headlineText'), landTimeEl=$('landTimeText'), landCountEl=$('landCountText'), landReasonEl=$('landReasonText');
+  landTimeEl.style.display='none'; landCountEl.style.display='none'; landReasonEl.style.display='none';
+
+  if(showingMessage && lastMessage){
+    headline.textContent=lastMessage;
+    headline.style.fontSize = lastMessage.length>40 ? '17px' : (lastMessage.length>20 ? '20px' : '24px');
+    headline.style.color='var(--tx)';
+  } else if(!everReceivedCommand){
+    headline.textContent='等待塔台來訊'; headline.style.fontSize='20px'; headline.style.color='var(--tx2)';
+  } else {
+    headline.textContent=currentStatus;
+    headline.style.fontSize = currentStatus.length>12 ? '20px' : '28px';
+    headline.style.color = currentStatus==='可以起飛' ? 'var(--gr)' : (currentStatus==='降落' ? 'var(--am)' : 'var(--tx)');
+    if(currentStatus==='降落' && landingTimeStr){
+      landTimeEl.style.display='block'; landTimeEl.textContent='降落 '+getLandTimeDisplay();
+      landCountEl.style.display='block';
+      if(landingReason){ landReasonEl.style.display='block'; landReasonEl.textContent=landingReason; }
+    }
+  }
+
+  $('pendingTag').style.display = (pilotMode==='master'&&ackPending) ? 'inline-block' : 'none';
+  $('ackWrap').style.display = (pilotMode==='master'&&ackPending) ? 'block' : 'none';
+  $('btnAck').textContent = landState==='countdown' ? '降落完成' : (landState==='wait_ack' ? '收到降落指令' : '收到');
+
+  $('landBtnWrap').style.display = (pilotMode==='master'&&currentStatus==='可以起飛') ? 'block' : 'none';
+  $('btnAsk').textContent = currentStatus==='可以起飛' ? '詢問放行時長' : '詢問機場狀況';
+  $('btnTurnpoint').textContent=turnBtnLabel;
+  $('btnGps').textContent='GPS：'+(gpsEnabled?'開啟':'關閉');
+  $('btnGps').classList.toggle('green', gpsEnabled);
+
+  renderCountdown();
+}
+
+function renderCountdown(){
+  if(!(currentStatus==='降落' && landingTimeStr && !showingMessage && everReceivedCommand)){ $('landCountText').style.display='none'; return; }
+  const diff=landTimeSecs()-getNowTotalSecs();
+  const el=$('landCountText'); el.style.display='block';
+  if(diff>0){
+    const mm=String(Math.floor(diff/60)).padStart(2,'0'), ss=String(diff%60).padStart(2,'0');
+    el.textContent='還有 '+mm+':'+ss; el.style.color = diff<60 ? 'var(--rd)' : 'var(--tx2)';
+  } else { el.textContent='降落時間到！'; el.style.color='var(--rd)'; }
+}
+
+function escapeHtml(s){ return String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+
+// ── 心跳 ─────────────────────────────────────────────────────────────
+function startHeartbeat(){
+  clearInterval(heartbeatTimer);
+  sendHeartbeat();
+  heartbeatTimer=setInterval(sendHeartbeat,5000);
+}
+function sendHeartbeat(){
+  if(!wsConnected) return;
+  const payload={type:'pilot_update',battery:getBattery(),wifi:true};
+  if(!gpsEnabled) payload.gps=false;
+  else if(gpsLat!=null){ payload.gps=true; payload.lat=gpsLat; payload.lng=gpsLng; }
+  else payload.gps='searching';
+  send(payload);
+}
+
+// ── 蜂鳴/震動（網頁版沒有實體喇叭，用短音效+震動代替） ──────────────
+let audioCtx=null;
+function beep(freq){
+  try{
+    if(!audioCtx) audioCtx=new (window.AudioContext||window.webkitAudioContext)();
+    const o=audioCtx.createOscillator(), g=audioCtx.createGain();
+    o.frequency.value=freq; o.connect(g); g.connect(audioCtx.destination);
+    g.gain.setValueAtTime(0.15,audioCtx.currentTime);
+    o.start(); o.stop(audioCtx.currentTime+0.18);
+  }catch(e){}
+}
+function vibrate(){ if(navigator.vibrate) navigator.vibrate(200); }
+
+// ── GPS（瀏覽器定位取代硬體GPS模組） ─────────────────────────────────
+function toggleGps(){
+  gpsEnabled=!gpsEnabled;
+  if(gpsEnabled){
+    if(!navigator.geolocation){ showToast('此裝置不支援定位'); gpsEnabled=false; renderMain(); return; }
+    gpsWatchId=navigator.geolocation.watchPosition(
+      pos=>{ gpsLat=pos.coords.latitude; gpsLng=pos.coords.longitude; },
+      err=>{ showToast('定位失敗：'+err.message); },
+      {enableHighAccuracy:true,maximumAge:5000,timeout:10000}
+    );
+  } else {
+    if(gpsWatchId!=null) navigator.geolocation.clearWatch(gpsWatchId);
+    gpsWatchId=null; gpsLat=null; gpsLng=null;
+  }
+  renderMain(); sendHeartbeat();
+}
+
+// ── 事件綁定：姓名/模式選擇 ──────────────────────────────────────────
+if(pilotName){ $('nameInput').value=pilotName; }
+$('btnNameNext').addEventListener('click',()=>{
+  const v=$('nameInput').value.trim();
+  if(!v){ showToast('請輸入名字'); return; }
+  pilotName=v; localStorage.setItem('pilotName',pilotName);
+  $('modeSubName').textContent=pilotName;
+  showPage('scrMode');
+});
+$('btnChangeName').addEventListener('click',()=>{ showPage('scrName'); });
+$('btnPickMaster').addEventListener('click',()=>{ pilotMode='master'; connect(); });
+$('btnPickFollower').addEventListener('click',()=>{ showPage('scrFollowerCode'); });
+$('btnFollowerBack').addEventListener('click',()=>{ showPage('scrMode'); });
+
+let followerBuf='';
+function renderFollowerBuf(){ $('followerBuf').textContent=(followerBuf+'____').slice(0,4).split('').join(''); }
+document.querySelectorAll('#scrFollowerCode .kp-btn').forEach(b=>b.addEventListener('click',()=>{
+  if(followerBuf.length<4){ followerBuf+=b.dataset.k; renderFollowerBuf(); }
+}));
+$('btnFollowerClr').addEventListener('click',()=>{ followerBuf=''; renderFollowerBuf(); });
+$('btnFollowerOk').addEventListener('click',()=>{
+  if(followerBuf.length!==4){ showToast('請輸入4碼序號'); return; }
+  masterCode=followerBuf; pilotMode='follower'; connect();
+});
+
+// ── 事件綁定：主畫面 ─────────────────────────────────────────────────
+$('btnMoreMenu').addEventListener('click',()=>showModal('moreModal'));
+$('btnCloseMore').addEventListener('click',()=>hideModal('moreModal'));
+$('btnBackToModeSel').addEventListener('click',()=>{
+  hideModal('moreModal');
+  if(ws){ try{ws.close();}catch(e){} }
+  clearInterval(heartbeatTimer); clearTimeout(reconnectTimer);
+  pilotMode=null; towerConnected=false; wsConnected=false;
+  $('modeSubName').textContent=pilotName;
+  showPage('scrMode');
+});
+$('btnRename').addEventListener('click',()=>{ hideModal('moreModal'); $('renameInput').value=pilotName; showModal('renameModal'); });
+$('btnRenameCancel').addEventListener('click',()=>hideModal('renameModal'));
+$('btnRenameOk').addEventListener('click',()=>{
+  const v=$('renameInput').value.trim();
+  if(!v) return;
+  pilotName=v; localStorage.setItem('pilotName',pilotName);
+  send({type: pilotMode==='follower' ? 'follower_rename' : 'pilot_rename', name:pilotName});
+  $('mainName').textContent=pilotName;
+  hideModal('renameModal');
+});
+
+// 公告
+$('btnNotamEdit').addEventListener('click',()=>{
+  notamHadValue = notamCode.length>0;
+  $('notamInput').value = notamCode ? notamCode.slice(1) : '';
+  showModal('notamModal');
+});
+$('notamRow').addEventListener('click',()=>{ if(pilotMode==='master') $('btnNotamEdit').click(); });
+$('btnNotamCancel').addEventListener('click',()=>hideModal('notamModal'));
+$('btnNotamOk').addEventListener('click',()=>{
+  const v=$('notamInput').value.trim();
+  if(!/^\d{4}$/.test(v)){ showToast('請輸入4個數字'); return; }
+  notamCode='U'+v;
+  send({type:'pilot_notam',notam:notamCode,pilotName});
+  hideModal('notamModal'); renderMain();
+  if(notamHadValue) showModal('notamTurnModal');
+});
+$('btnNotamTurnNo').addEventListener('click',()=>hideModal('notamTurnModal'));
+$('btnNotamTurnYes').addEventListener('click',()=>{
+  hideModal('notamTurnModal');
+  turnpointSource=2; $('minutesTitle').textContent='轉點時間（大約幾分鐘）'; $('minutesInput').value='';
+  showModal('minutesModal');
+});
+
+// 轉點／就位
+$('btnTurnpoint').addEventListener('click',()=>{
+  if(turnBtnLabel==='轉點'){
+    turnpointSource=1; $('minutesTitle').textContent='轉點時間（大約幾分鐘）'; $('minutesInput').value='';
+    showModal('minutesModal');
+  } else {
+    send({type:'pilot_arrived',pilotName});
+    turnBtnLabel='轉點'; renderMain(); showToast('已回報就位');
+  }
+});
+$('btnMinutesCancel').addEventListener('click',()=>{ hideModal('minutesModal'); turnpointSource=0; });
+$('btnMinutesOk').addEventListener('click',()=>{
+  const n=parseInt($('minutesInput').value,10);
+  if(!n||n<=0){ showToast('請輸入有效分鐘數'); return; }
+  send({type:'pilot_turnpoint',pilotName,minutes:n,viaNotam:turnpointSource===2});
+  if(turnpointSource===1) turnBtnLabel='就位';
+  turnpointSource=0; hideModal('minutesModal'); renderMain(); showToast('已回報轉點');
+});
+
+// 詢問
+$('btnAsk').addEventListener('click',()=>{
+  const duringFlight = currentStatus==='可以起飛';
+  send({type:'pilot_ask_status',pilotName,askType:duringFlight?'duration':'airport'});
+  showToast(duringFlight?'已詢問塔台放行時長':'已詢問塔台機場狀況');
+});
+
+// 收到 / 降落完成
+$('btnAck').addEventListener('click',()=>{
+  if(landState==='wait_ack'){
+    send({type:'pilot_ack',ackType:'landing_ack'}); ackPending=false; landState='countdown'; renderMain();
+  } else if(landState==='countdown'){
+    send({type:'pilot_ack',ackType:'landing_done'}); ackPending=false; landState='none';
+    showingMessage=false; renderMain(); showToast('已回報降落完成');
+  } else {
+    send({type:'pilot_ack',ackType: currentStatus==='可以起飛' ? 'takeoff' : 'ack'});
+    ackPending=false; renderMain();
+  }
+});
+
+// 回報降落（可以起飛狀態下主動回報）
+$('btnLandReport').addEventListener('click',()=>showModal('landModal'));
+$('btnLandCancel').addEventListener('click',()=>hideModal('landModal'));
+$('btnLandOk').addEventListener('click',()=>{
+  send({type:'pilot_land_report',pilotName});
+  currentStatus='降落'; landingTimeStr=''; landingReason=''; landState='none';
+  hideModal('landModal'); renderMain(); showToast('已回報降落');
+});
+
+// GPS / 結束任務
+$('btnGps').addEventListener('click',toggleGps);
+$('btnEndSession').addEventListener('click',()=>showModal('endModal'));
+$('btnEndCancel').addEventListener('click',()=>hideModal('endModal'));
+$('btnEndOk').addEventListener('click',()=>{
+  send({type:'pilot_end_session',pilotName});
+  hideModal('endModal');
+});
+
+// ── 啟動：若先前已輸入過名字，直接到模式選擇 ──────────────────────────
+if(pilotName){ $('modeSubName').textContent=pilotName; showPage('scrMode'); }
+
+// 分頁切到背景時仍嘗試維持連線；回到前景時如果斷線就重連
+document.addEventListener('visibilitychange',()=>{
+  if(document.visibilityState==='visible' && pilotMode && !wsConnected && !wsConnecting) connect();
+});
+</script>
+</body>
+</html>
