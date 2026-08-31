@@ -151,6 +151,7 @@ function applyStatus(pilot,status,landingTime){
   pilot.status=status;
   pilot.lastCommType='status';
   pilot.hasCommand=true;
+  pilot.lastMessageTime=nowTimeStr(); // 塔台每次來訊（指令或訊息）的時間，飛手端顯示用，跟 line 一樣
   if(landingTime) pilot.landingTime=landingTime;
   const gn=groupName(pilot.groupId);
   const {tName,tType}=getActiveTower();
@@ -177,8 +178,8 @@ function updateGroupStatus(groupId,status,landingTime,immediate){
     const p=pilots.get(cid); if(!p) return;
     if(!canSendToPilot(p,status)) return; // 跳過正在降落鎖定中的飛手，不影響同分類其他人
     applyStatus(p,status,landingTime);
-    toPilot(cid,{type:'command',status,landingTime:landingTime||null,immediate:!!immediate,groupName:groupName(groupId)});
-    toFollowers(cid,{type:'follower_sync',status,landingTime:landingTime||null,immediate:!!immediate,groupName:groupName(groupId)});
+    toPilot(cid,{type:'command',status,landingTime:landingTime||null,immediate:!!immediate,groupName:groupName(groupId),time:p.lastMessageTime});
+    toFollowers(cid,{type:'follower_sync',status,landingTime:landingTime||null,immediate:!!immediate,groupName:groupName(groupId),time:p.lastMessageTime});
   });
   toTower({type:'pilots_update',pilots:pilotSnap()});
 }
@@ -233,8 +234,8 @@ wss.on('connection',ws=>{
             return;
           }
           applyStatus(pilot,status,landingTime);
-          toPilot(clientId,{type:'command',status,landingTime:landingTime||null,immediate:!!immediate,groupName:''});
-          toFollowers(clientId,{type:'follower_sync',status,landingTime:landingTime||null,immediate:!!immediate,groupName:''});
+          toPilot(clientId,{type:'command',status,landingTime:landingTime||null,immediate:!!immediate,groupName:'',time:pilot.lastMessageTime});
+          toFollowers(clientId,{type:'follower_sync',status,landingTime:landingTime||null,immediate:!!immediate,groupName:'',time:pilot.lastMessageTime});
           toTower({type:'pilots_update',pilots:pilotSnap()});
         }
         break;

@@ -23,7 +23,7 @@
 #define GPS_RX_PIN    32   // Core2 PORT.A（外接I2C腳位，這裡改當UART用；訊號1=RXD）
 #define GPS_TX_PIN    33   // Core2 PORT.A（訊號2=TXD）
 #define GPS_BAUD      115200
-#define FW_VERSION    17
+#define FW_VERSION    18
 #define UPDATE_CHECK_URL "https://droneatis-production.up.railway.app/firmware/version.json"
 
 // ── NVS 儲存 ─────────────────────────────────────────────────────────────────
@@ -753,8 +753,9 @@ void webSocketEvent(WStype_t wsType, uint8_t* payload, size_t length){
           } else landingTimeStr=raw;
         }
         landState=(currentStatus=="降落")?LAND_WAIT_ACK:LAND_NONE;
+        lastMessageTime=doc["lastMessageTime"]|"";  // 上次塔台來訊時間（指令或訊息）
         String lct=doc["lastCommType"]|"status";
-        if(lct=="message"){ lastMessage=doc["lastMessage"]|""; lastMessageTime=doc["lastMessageTime"]|""; showingMessage=(lastMessage.length()>0); }
+        if(lct=="message"){ lastMessage=doc["lastMessage"]|""; showingMessage=(lastMessage.length()>0); }
         else { showingMessage=false; }
         everReceivedCommand=(doc["hasCommand"]|false);
         // 飛聚跟隨模式：加入時若已有塔台指令/訊息，一律要求回報一次，直接停在指令畫面
@@ -794,6 +795,8 @@ void webSocketEvent(WStype_t wsType, uint8_t* payload, size_t length){
           } else landingTimeStr=raw;
         }
         groupName=doc["groupName"]|groupName;
+        // 塔台這次來訊的時間（指令也要顯示，跟 line 一樣）；沒帶就用本機時鐘
+        { String st=doc["time"]|""; if(st.length()==0) st=getNowTime(); if(st=="--:--") st=""; lastMessageTime=st; }
         landState=(currentStatus=="降落")?LAND_WAIT_ACK:LAND_NONE;
         if(NEEDS_ACK){ ackPending=true; ackReceivedAt=millis(); ackDeadline=millis()+30000; buzzPhase=0; }
         wakeScreen();
@@ -929,6 +932,12 @@ void drawIdle(){
   M5.Display.setTextColor(ok?CLR_GREEN:CLR_RED);
   M5.Display.drawString(ok?("● "+towerType+" "+towerName):"● 無連線",8,46);
 
+  // 塔台上次來訊時間（跟 line 一樣）— 主控右側有 GPS 鈕，往左讓一點
+  if(everReceivedCommand && lastMessageTime.length()>0){
+    fXs(); M5.Display.setTextDatum(middle_right); M5.Display.setTextColor(CLR_GRAY);
+    M5.Display.drawString("塔台 "+lastMessageTime,pilotMode==MODE_MASTER?226:314,46);
+  }
+
   if(pilotMode==MODE_MASTER) drawGpsBtn();
 
   // 公告框（觸控 y:58~78）
@@ -954,13 +963,9 @@ void drawIdle(){
   bool hasReason=(currentStatus=="降落"&&landingTimeStr.length()>0&&landingReason.length()>0);
   M5.Display.setTextDatum(middle_center);
 
-  // 手動訊息跟選單狀態不同時顯示，看哪個是最新收到的
+  // 手動訊息跟選單狀態不同時顯示，看哪個是最新收到的（時間已顯示在右上）
   if(showingMessage&&lastMessage.length()>0){
-    drawFitText(lastMessage,160,148,CLR_WHITE);
-    if(lastMessageTime.length()>0){
-      fXs(); M5.Display.setTextDatum(middle_center); M5.Display.setTextColor(CLR_GRAY);
-      M5.Display.drawString("塔台 "+lastMessageTime+" 發送",160,180);
-    }
+    drawFitText(lastMessage,160,152,CLR_WHITE);
   } else if(!everReceivedCommand){
     fSm(); M5.Display.setTextColor(CLR_GRAY); M5.Display.drawString("等待塔台來訊",160,150);
   } else if(hasReason){
@@ -1029,6 +1034,7 @@ void drawCommand(){
   M5.Display.fillRect(0,32,320,26,bar);
   fXs(); M5.Display.setTextDatum(middle_center); M5.Display.setTextColor(CLR_BG);
   M5.Display.drawString("塔台指令",160,45);
+  if(lastMessageTime.length()>0){ M5.Display.setTextDatum(middle_right); M5.Display.drawString(lastMessageTime,314,45); }
   uint16_t sc=(currentStatus=="可以起飛")?CLR_GREEN:(currentStatus=="降落")?CLR_AMBER:CLR_WHITE;
   bool hasReason=(currentStatus=="降落"&&landingTimeStr.length()>0&&landingReason.length()>0);
   if(currentStatus=="降落"&&landingTimeStr.length()>0){

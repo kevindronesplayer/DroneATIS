@@ -1,5 +1,5 @@
 {
-  "version": 17,
-  "notes": "模式選擇說明文字縮小不爆框；主控序號改放「更多」選單；飛聚跟隨待命列說明縮短；訊息發送時間改用本機時鐘備援，飛手介面務必顯示",
+  "version": 18,
+  "notes": "塔台每次來訊（指令或訊息）都顯示發送時間，跟 line 一樣；降落鎖定中也擋自由訊息",
   "url": "https://droneatis-production.up.railway.app/firmware/esp32_pilot.bin"
 }

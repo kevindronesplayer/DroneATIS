@@ -226,7 +226,8 @@ function handle(msg){
       currentStatus=msg.status||'開機預備';
       applyLandingTime(msg.landingTime);
       landState=(currentStatus==='降落')?'wait_ack':'none';
-      if(msg.lastCommType==='message'){ lastMessage=msg.lastMessage||''; lastMessageTime=msg.lastMessageTime||''; showingMessage=!!lastMessage; }
+      lastMessageTime=msg.lastMessageTime||''; // 上次塔台來訊時間（指令或訊息）
+      if(msg.lastCommType==='message'){ lastMessage=msg.lastMessage||''; showingMessage=!!lastMessage; }
       else showingMessage=false;
       everReceivedCommand=!!msg.hasCommand;
       // 飛聚跟隨模式：加入時若已有塔台指令/訊息，一律要求回報一次
@@ -244,6 +245,7 @@ function handle(msg){
     case 'command': case 'follower_sync':
       showingMessage=false; everReceivedCommand=true;
       currentStatus=msg.status;
+      lastMessageTime=msg.time||nowClock(); // 塔台這次來訊的時間（指令也要顯示，跟 line 一樣）
       if(msg.immediate){
         const total=(getNowTotalSecs()+60)%86400;
         landingTimeStr=String(Math.floor(total/3600)).padStart(2,'0')+String(Math.floor(total/60)%60).padStart(2,'0');
@@ -256,7 +258,7 @@ function handle(msg){
       break;
     case 'message':
       showingMessage=true; everReceivedCommand=true;
-      lastMessage=msg.message; lastMessageTime=msg.time||''; landState='none';
+      lastMessage=msg.message; lastMessageTime=msg.time||nowClock(); landState='none';
       if(gatherMode){ ackPending=true; ackDeadline=Date.now()+30000; lastNagAt=Date.now(); }
       renderMain(); beep(660); vibrate();
       break;
@@ -288,6 +290,7 @@ function handle(msg){
   }
 }
 
+function nowClock(){ const d=new Date(); return String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0'); }
 function applyLandingTime(raw){
   landingReason='';
   if(!raw){ landingTimeStr=''; return; }
@@ -346,7 +349,6 @@ function renderMain(){
     headline.textContent=lastMessage;
     headline.style.fontSize = lastMessage.length>40 ? '17px' : (lastMessage.length>20 ? '20px' : '24px');
     headline.style.color='var(--tx)';
-    if(lastMessageTime){ msgTimeEl.style.display='block'; msgTimeEl.textContent='塔台 '+lastMessageTime+' 發送'; }
   } else if(!everReceivedCommand){
     headline.textContent='等待塔台來訊'; headline.style.fontSize='20px'; headline.style.color='var(--tx2)';
   } else {
@@ -358,6 +360,10 @@ function renderMain(){
       landCountEl.style.display='block';
       if(landingReason){ landReasonEl.style.display='block'; landReasonEl.textContent=landingReason; }
     }
+  }
+  // 塔台每次來訊（指令或訊息）都顯示發送時間，跟 line 一樣
+  if(everReceivedCommand && lastMessageTime){
+    msgTimeEl.style.display='block'; msgTimeEl.textContent='塔台 '+lastMessageTime+' 發送';
   }
 
   // 只有飛聚跟隨模式要回報
