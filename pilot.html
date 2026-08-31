@@ -84,6 +84,21 @@ input[type=text]:focus,input[type=number]:focus{border-color:var(--ac);}
   <button class="btn" id="btnNameNext">下一步</button>
 </div>
 
+<!-- 模式選擇 -->
+<div class="page center-page" id="scrModeSelect">
+  <div class="logo">DroneATIS</div>
+  <div class="sub" id="modeSelName"></div>
+  <div class="mode-btn follower" id="btnModeView">
+    <div class="t">跟隨模式</div>
+    <div class="d">跟隨主控，僅顯示、不回應</div>
+  </div>
+  <div class="mode-btn" id="btnModeGather" style="border-color:var(--am)">
+    <div class="t" style="color:var(--am)">飛聚跟隨模式</div>
+    <div class="d">跟隨主控，需回報（回報給主控者，不是塔台）</div>
+  </div>
+  <button class="btn outline" id="btnModeBack">‹ 更改名字</button>
+</div>
+
 <!-- 輸入主控序號 -->
 <div class="page center-page" id="scrFollowerCode">
   <div class="logo">DroneATIS</div>
@@ -117,6 +132,7 @@ input[type=text]:focus,input[type=number]:focus{border-color:var(--ac);}
     </div>
     <div class="status-card">
       <div class="headline" id="headlineText" style="font-size:26px;">等待塔台來訊</div>
+      <div class="land-count" id="msgTimeText" style="display:none;"></div>
       <div class="land-time" id="landTimeText" style="display:none;"></div>
       <div class="land-count" id="landCountText" style="display:none;"></div>
       <div class="land-reason" id="landReasonText" style="display:none;"></div>
@@ -209,11 +225,14 @@ input[type=text]:focus,input[type=number]:focus{border-color:var(--ac);}
 // ── 狀態 ──────────────────────────────────────────────────────────────
 let ws=null, wsConnecting=false, wsConnected=false;
 let pilotMode=null;        // 網頁版僅支援 'follower'（連線時設定）
+let followerKind='view';   // 'view'=跟隨模式(僅顯示) / 'gather'=飛聚跟隨模式(強制回報主控)
+let gatherMode=false;      // followerKind==='gather' 的快取
+let lastNagAt=0;
 let pilotName=localStorage.getItem('pilotName')||'';
 let clientId='', roomCode='', masterCode='';
 let towerConnected=false, towerName='塔台', towerTypeStr='南塔', groupName='';
 let notamCode='', rwyDir='';
-let currentStatus='開機預備', lastMessage='', showingMessage=false, everReceivedCommand=false;
+let currentStatus='開機預備', lastMessage='', lastMessageTime='', showingMessage=false, everReceivedCommand=false;
 let landingTimeStr='', landingReason='';
 let ackPending=false, ackDeadline=0;
 let landState='none'; // none | wait_ack | countdown
@@ -240,7 +259,7 @@ function connect(){
   ws=new WebSocket(`${wsProtocol}//${location.host}`);
   ws.onopen=()=>{
     wsConnecting=false; wsConnected=true; updateConnDot();
-    send({type:'follower_register',name:pilotName,masterCode});
+    send({type:'follower_register',name:pilotName,masterCode,gather:gatherMode});
   };
   ws.onclose=()=>{ wsConnecting=false; wsConnected=false; updateConnDot(); scheduleReconnect(); };
   ws.onerror=()=>{ try{ws.close();}catch(e){} };
@@ -268,9 +287,11 @@ function handle(msg){
       currentStatus=msg.status||'開機預備';
       applyLandingTime(msg.landingTime);
       landState=(currentStatus==='降落')?'wait_ack':'none';
-      if(msg.lastCommType==='message'){ lastMessage=msg.lastMessage||''; showingMessage=!!lastMessage; }
+      if(msg.lastCommType==='message'){ lastMessage=msg.lastMessage||''; lastMessageTime=msg.lastMessageTime||''; showingMessage=!!lastMessage; }
       else showingMessage=false;
       everReceivedCommand=!!msg.hasCommand;
+      // 飛聚跟隨模式：加入時若已有塔台指令/訊息，一律要求回報一次
+      if(gatherMode && (everReceivedCommand || showingMessage)){ ackPending=true; ackDeadline=Date.now()+30000; lastNagAt=Date.now(); }
       enterMain();
       break;
     case 'follower_error':
@@ -291,13 +312,13 @@ function handle(msg){
       } else applyLandingTime(msg.landingTime);
       if(msg.groupName!==undefined && msg.groupName!=='') groupName=msg.groupName;
       landState=(currentStatus==='降落')?'wait_ack':'none';
-      if(pilotMode==='master'){ ackPending=true; ackDeadline=Date.now()+30000; }
+      if(pilotMode==='master'||gatherMode){ ackPending=true; ackDeadline=Date.now()+30000; lastNagAt=Date.now(); }
       renderMain(); beep(880); vibrate();
       break;
     case 'message':
       showingMessage=true; everReceivedCommand=true;
-      lastMessage=msg.message; landState='none';
-      if(pilotMode==='master'){ ackPending=true; ackDeadline=Date.now()+30000; }
+      lastMessage=msg.message; lastMessageTime=msg.time||''; landState='none';
+      if(pilotMode==='master'||gatherMode){ ackPending=true; ackDeadline=Date.now()+30000; lastNagAt=Date.now(); }
       renderMain(); beep(660); vibrate();
       break;
     case 'group_update':
@@ -314,6 +335,7 @@ function handle(msg){
       if(pilotMode==='master'){ showToast('⚠️ 尚未回應塔台指令'); beep(440); vibrate(); }
       break;
     case 'follower_ack_sync':
+      if(gatherMode) break; // 飛聚跟隨自己管理回報狀態，忽略主控的回報同步
       if(msg.ackType==='ack'||msg.ackType==='takeoff'){ landState='none'; }
       else if(msg.ackType==='landing_ack'){ landState='countdown'; }
       else if(msg.ackType==='landing_done'){ landState='none'; }
@@ -352,13 +374,21 @@ function getLandTimeDisplay(){
 function enterMain(){
   $('mainName').textContent=pilotName;
   $('followerBanner').style.display = pilotMode==='follower' ? 'block' : 'none';
+  $('followerBanner').textContent = gatherMode ? '飛聚跟隨模式 · 收到指令須回報主控' : '跟隨模式 · 僅顯示';
   $('masterActions').style.display = pilotMode==='master' ? 'block' : 'none';
   $('footerActions').style.display = pilotMode==='master' ? 'flex' : 'none';
   $('btnNotamEdit').style.display = pilotMode==='master' ? 'inline-block' : 'none';
   showPage('scrMain');
   renderMain();
   startHeartbeat();
-  if(!clockTimer) clockTimer=setInterval(renderCountdown,1000);
+  if(!clockTimer) clockTimer=setInterval(()=>{ renderCountdown(); gatherNag(); },1000);
+}
+
+// 飛聚跟隨模式：收到指令超過約10秒未回報就持續提醒
+function gatherNag(){
+  if(!gatherMode || !ackPending) return;
+  const now=Date.now();
+  if(now > ackDeadline-20000 && now-lastNagAt>8000){ beep(440); vibrate(); lastNagAt=now; }
 }
 
 function renderMain(){
@@ -373,13 +403,14 @@ function renderMain(){
   if(metaBits.length){ $('metaRow').style.display='flex'; $('metaRow').innerHTML=metaBits.map(b=>`<span>${escapeHtml(b)}</span>`).join(''); }
   else $('metaRow').style.display='none';
 
-  const headline=$('headlineText'), landTimeEl=$('landTimeText'), landCountEl=$('landCountText'), landReasonEl=$('landReasonText');
-  landTimeEl.style.display='none'; landCountEl.style.display='none'; landReasonEl.style.display='none';
+  const headline=$('headlineText'), landTimeEl=$('landTimeText'), landCountEl=$('landCountText'), landReasonEl=$('landReasonText'), msgTimeEl=$('msgTimeText');
+  landTimeEl.style.display='none'; landCountEl.style.display='none'; landReasonEl.style.display='none'; msgTimeEl.style.display='none';
 
   if(showingMessage && lastMessage){
     headline.textContent=lastMessage;
     headline.style.fontSize = lastMessage.length>40 ? '17px' : (lastMessage.length>20 ? '20px' : '24px');
     headline.style.color='var(--tx)';
+    if(lastMessageTime){ msgTimeEl.style.display='block'; msgTimeEl.textContent='塔台 '+lastMessageTime+' 發送'; }
   } else if(!everReceivedCommand){
     headline.textContent='等待塔台來訊'; headline.style.fontSize='20px'; headline.style.color='var(--tx2)';
   } else {
@@ -393,8 +424,10 @@ function renderMain(){
     }
   }
 
-  $('pendingTag').style.display = (pilotMode==='master'&&ackPending) ? 'inline-block' : 'none';
-  $('ackWrap').style.display = (pilotMode==='master'&&ackPending) ? 'block' : 'none';
+  const canAck = (pilotMode==='master'||gatherMode);
+  $('pendingTag').style.display = (canAck&&ackPending) ? 'inline-block' : 'none';
+  // 待回應時、或降落倒數中（還要按「降落完成」）都要保留按鈕
+  $('ackWrap').style.display = (canAck && (ackPending || landState==='countdown')) ? 'block' : 'none';
   $('btnAck').textContent = landState==='countdown' ? '降落完成' : (landState==='wait_ack' ? '收到降落指令' : '收到');
 
   $('landBtnWrap').style.display = (pilotMode==='master'&&currentStatus==='可以起飛') ? 'block' : 'none';
@@ -465,6 +498,10 @@ function toggleGps(){
 
 // ── 事件綁定：姓名/模式選擇 ──────────────────────────────────────────
 if(pilotName){ $('nameInput').value=pilotName; }
+function showModeSelect(){
+  $('modeSelName').textContent=pilotName;
+  showPage('scrModeSelect');
+}
 function gotoFollowerCode(){
   followerBuf=''; renderFollowerBuf();
   $('followerCodeName').textContent=pilotName;
@@ -474,9 +511,12 @@ $('btnNameNext').addEventListener('click',()=>{
   const v=$('nameInput').value.trim();
   if(!v){ showToast('請輸入名字'); return; }
   pilotName=v; localStorage.setItem('pilotName',pilotName);
-  gotoFollowerCode();
+  showModeSelect();
 });
-$('btnFollowerBack').addEventListener('click',()=>{ showPage('scrName'); });
+$('btnModeView').addEventListener('click',()=>{ followerKind='view'; gatherMode=false; gotoFollowerCode(); });
+$('btnModeGather').addEventListener('click',()=>{ followerKind='gather'; gatherMode=true; gotoFollowerCode(); });
+$('btnModeBack').addEventListener('click',()=>{ showPage('scrName'); });
+$('btnFollowerBack').addEventListener('click',()=>{ showModeSelect(); });
 
 let followerBuf='';
 function renderFollowerBuf(){ $('followerBuf').textContent=(followerBuf+'____').slice(0,4).split('').join(''); }
@@ -496,8 +536,8 @@ $('btnBackToModeSel').addEventListener('click',()=>{
   hideModal('moreModal');
   if(ws){ try{ws.close();}catch(e){} }
   clearInterval(heartbeatTimer); clearTimeout(reconnectTimer);
-  pilotMode=null; towerConnected=false; wsConnected=false;
-  gotoFollowerCode();
+  pilotMode=null; towerConnected=false; wsConnected=false; ackPending=false;
+  showModeSelect();
 });
 $('btnRename').addEventListener('click',()=>{ hideModal('moreModal'); $('renameInput').value=pilotName; showModal('renameModal'); });
 $('btnRenameCancel').addEventListener('click',()=>hideModal('renameModal'));
@@ -559,16 +599,21 @@ $('btnAsk').addEventListener('click',()=>{
   showToast(duringFlight?'已詢問塔台放行時長':'已詢問塔台機場狀況');
 });
 
-// 收到 / 降落完成
+// 收到 / 降落完成（主控模式→回報塔台；飛聚跟隨模式→回報主控者）
+function reportAck(stage){
+  if(gatherMode) send({type:'follower_confirm',stage});
+  else send({type:'pilot_ack',ackType:stage});
+}
 $('btnAck').addEventListener('click',()=>{
   if(landState==='wait_ack'){
-    send({type:'pilot_ack',ackType:'landing_ack'}); ackPending=false; landState='countdown'; renderMain();
+    reportAck('landing_ack'); ackPending=false; landState='countdown'; renderMain();
+    if(gatherMode) showToast('已回報主控：收到降落指令');
   } else if(landState==='countdown'){
-    send({type:'pilot_ack',ackType:'landing_done'}); ackPending=false; landState='none';
-    showingMessage=false; renderMain(); showToast('已回報降落完成');
+    reportAck('landing_done'); ackPending=false; landState='none';
+    showingMessage=false; renderMain(); showToast(gatherMode?'已回報主控：降落完成':'已回報降落完成');
   } else {
-    send({type:'pilot_ack',ackType: currentStatus==='可以起飛' ? 'takeoff' : 'ack'});
-    ackPending=false; renderMain();
+    reportAck(currentStatus==='可以起飛' ? 'takeoff' : 'ack');
+    ackPending=false; renderMain(); if(gatherMode) showToast('已回報主控');
   }
 });
 
@@ -590,8 +635,8 @@ $('btnEndOk').addEventListener('click',()=>{
   hideModal('endModal');
 });
 
-// ── 啟動：若先前已輸入過名字，直接到序號輸入 ──────────────────────────
-if(pilotName){ gotoFollowerCode(); }
+// ── 啟動：若先前已輸入過名字，直接到模式選擇 ──────────────────────────
+if(pilotName){ showModeSelect(); }
 
 // 分頁切到背景時仍嘗試維持連線；回到前景時如果斷線就重連
 document.addEventListener('visibilitychange',()=>{

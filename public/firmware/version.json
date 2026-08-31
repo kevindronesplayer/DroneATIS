@@ -1,5 +1,5 @@
 {
-  "version": 13,
-  "notes": "修正塔台名稱不顯示；跟隨模式更多可返回選擇模式；跟隨端新增簡易回報；訊息顯示發送時間",
+  "version": 15,
+  "notes": "新增「飛聚跟隨模式」：比照主控強制回報，但回報給主控者不是塔台；跟隨模式恢復純顯示不回應；塔台訊息發送時間標示「塔台 HH:MM 發送」",
   "url": "https://droneatis-production.up.railway.app/firmware/esp32_pilot.bin"
 }

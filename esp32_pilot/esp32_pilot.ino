@@ -23,7 +23,7 @@
 #define GPS_RX_PIN    32   // Core2 PORT.A（外接I2C腳位，這裡改當UART用；訊號1=RXD）
 #define GPS_TX_PIN    33   // Core2 PORT.A（訊號2=TXD）
 #define GPS_BAUD      115200
-#define FW_VERSION    13
+#define FW_VERSION    15
 #define UPDATE_CHECK_URL "https://droneatis-production.up.railway.app/firmware/version.json"
 
 // ── NVS 儲存 ─────────────────────────────────────────────────────────────────
@@ -38,8 +38,12 @@ bool wsConnected  = false;
 bool wsConnecting = false;
 
 // ── 飛行模式 ──────────────────────────────────────────────────────────────────
-enum PilotMode { MODE_NONE, MODE_MASTER, MODE_FOLLOWER };
+enum PilotMode { MODE_NONE, MODE_MASTER, MODE_FOLLOWER, MODE_GATHER };
 PilotMode pilotMode = MODE_NONE;
+// MODE_FOLLOWER：跟隨主控，純顯示、不回應
+// MODE_GATHER （飛聚跟隨）：跟主控模式一樣強制回報，但回報對象是主控者、不是塔台
+#define IS_FOLLOWER_CONN (pilotMode==MODE_FOLLOWER||pilotMode==MODE_GATHER)
+#define NEEDS_ACK        (pilotMode==MODE_MASTER||pilotMode==MODE_GATHER)
 String masterCode   = "";
 
 // ── 狀態變數 ──────────────────────────────────────────────────────────────────
@@ -535,21 +539,24 @@ void drawModeSelect(){
   M5.Display.setFont(nullptr); M5.Display.setTextSize(2);
   M5.Display.setTextDatum(middle_center);
   M5.Display.setTextColor(CLR_ACCENT);
-  M5.Display.drawString("DroneATIS",160,40);
-  fSm(); M5.Display.setTextColor(CLR_GRAY);
-  M5.Display.drawString(pilotName,160,72);
-  M5.Display.fillRoundRect(20,100,280,64,12,CLR_SURFACE);
-  M5.Display.drawRoundRect(20,100,280,64,12,CLR_GREEN);
-  fSm(); M5.Display.setTextColor(CLR_GREEN);
-  M5.Display.drawString("主控模式",160,124);
+  M5.Display.drawString("DroneATIS",160,30);
   fXs(); M5.Display.setTextColor(CLR_GRAY);
-  M5.Display.drawString("獨立連線，可回應塔台",160,148);
-  M5.Display.fillRoundRect(20,176,280,64,12,CLR_SURFACE);
-  M5.Display.drawRoundRect(20,176,280,64,12,CLR_ACCENT);
-  fSm(); M5.Display.setTextColor(CLR_ACCENT);
-  M5.Display.drawString("跟隨模式",160,200);
-  fXs(); M5.Display.setTextColor(CLR_GRAY);
-  M5.Display.drawString("跟隨主控，僅顯示資訊",160,224);
+  M5.Display.drawString(pilotName,160,56);
+  // 主控模式
+  M5.Display.fillRoundRect(16,74,288,48,10,CLR_SURFACE);
+  M5.Display.drawRoundRect(16,74,288,48,10,CLR_GREEN);
+  fSm(); M5.Display.setTextColor(CLR_GREEN); M5.Display.drawString("主控模式",160,90);
+  fXs(); M5.Display.setTextColor(CLR_GRAY); M5.Display.drawString("獨立連線，可回應塔台",160,110);
+  // 跟隨模式
+  M5.Display.fillRoundRect(16,128,288,48,10,CLR_SURFACE);
+  M5.Display.drawRoundRect(16,128,288,48,10,CLR_ACCENT);
+  fSm(); M5.Display.setTextColor(CLR_ACCENT); M5.Display.drawString("跟隨模式",160,144);
+  fXs(); M5.Display.setTextColor(CLR_GRAY); M5.Display.drawString("跟隨主控，僅顯示、不回應",160,164);
+  // 飛聚跟隨模式
+  M5.Display.fillRoundRect(16,182,288,52,10,CLR_SURFACE);
+  M5.Display.drawRoundRect(16,182,288,52,10,CLR_AMBER);
+  fSm(); M5.Display.setTextColor(CLR_AMBER); M5.Display.drawString("飛聚跟隨模式",160,199);
+  fXs(); M5.Display.setTextColor(CLR_GRAY); M5.Display.drawString("跟隨主控，需回報（回報給主控者）",160,221);
 }
 
 // ── 序號畫面 ──────────────────────────────────────────────────────────────────
@@ -639,6 +646,7 @@ void sendRegister(){
 void sendFollowerRegister(){
   StaticJsonDocument<128> doc;
   doc["type"]="follower_register"; doc["name"]=pilotName; doc["masterCode"]=masterCode;
+  doc["gather"]=(pilotMode==MODE_GATHER);
   String o; serializeJson(doc,o); wsClient.sendTXT(o);
 }
 
@@ -660,21 +668,28 @@ void sendHeartbeat(){
 }
 
 void sendAck(String ackType){
-  if(pilotMode==MODE_FOLLOWER) return;
+  if(pilotMode!=MODE_MASTER) return;
   StaticJsonDocument<128> doc;
   doc["type"]="pilot_ack"; doc["ackType"]=ackType;
   String o; serializeJson(doc,o); wsClient.sendTXT(o);
 }
 
-void sendFollowerConfirm(){
-  if(pilotMode!=MODE_FOLLOWER) return;
-  StaticJsonDocument<64> doc;
-  doc["type"]="follower_confirm";
+// 飛聚跟隨模式：回報給主控者（伺服器再轉給主控），不進塔台
+void sendGatherConfirm(String stage){
+  if(pilotMode!=MODE_GATHER) return;
+  StaticJsonDocument<96> doc;
+  doc["type"]="follower_confirm"; doc["stage"]=stage;
   String o; serializeJson(doc,o); wsClient.sendTXT(o);
 }
 
+// 統一回報入口：主控 → 塔台；飛聚跟隨 → 主控者
+void submitAck(String stage){
+  if(pilotMode==MODE_MASTER) sendAck(stage);
+  else if(pilotMode==MODE_GATHER) sendGatherConfirm(stage);
+}
+
 void sendEndSession(){
-  if(pilotMode==MODE_FOLLOWER) return;
+  if(IS_FOLLOWER_CONN) return;
   StaticJsonDocument<64> doc; doc["type"]="pilot_end_session"; doc["pilotName"]=pilotName;
   String o; serializeJson(doc,o); wsClient.sendTXT(o);
 }
@@ -698,7 +713,7 @@ void webSocketEvent(WStype_t wsType, uint8_t* payload, size_t length){
       wsConnected=true;
       wsConnecting=false;
       if(pilotMode==MODE_MASTER) sendRegister();
-      else if(pilotMode==MODE_FOLLOWER) sendFollowerRegister();
+      else if(IS_FOLLOWER_CONN) sendFollowerRegister();
       break;
     case WStype_TEXT:
       Serial.print("[WS] TEXT: "); Serial.println((char*)payload);
@@ -738,7 +753,15 @@ void webSocketEvent(WStype_t wsType, uint8_t* payload, size_t length){
         if(lct=="message"){ lastMessage=doc["lastMessage"]|""; lastMessageTime=doc["lastMessageTime"]|""; showingMessage=(lastMessage.length()>0); }
         else { showingMessage=false; }
         everReceivedCommand=(doc["hasCommand"]|false);
-        currentScreen=SCR_IDLE; drawIdle(); beep3();
+        // 飛聚跟隨模式：加入時若已有塔台指令/訊息，一律要求回報一次，直接停在指令畫面
+        if(pilotMode==MODE_GATHER&&(everReceivedCommand||showingMessage)){
+          ackPending=true; ackReceivedAt=millis(); ackDeadline=millis()+30000; buzzPhase=0;
+          currentScreen=SCR_COMMAND;
+          if(showingMessage) drawMessage(); else drawCommand();
+          beep3();
+        } else {
+          currentScreen=SCR_IDLE; drawIdle(); beep3();
+        }
       }
       else if(type=="tower_connected"){
         towerConnected=true;
@@ -768,7 +791,7 @@ void webSocketEvent(WStype_t wsType, uint8_t* payload, size_t length){
         }
         groupName=doc["groupName"]|groupName;
         landState=(currentStatus=="降落")?LAND_WAIT_ACK:LAND_NONE;
-        if(pilotMode==MODE_MASTER){ ackPending=true; ackReceivedAt=millis(); ackDeadline=millis()+30000; buzzPhase=0; }
+        if(NEEDS_ACK){ ackPending=true; ackReceivedAt=millis(); ackDeadline=millis()+30000; buzzPhase=0; }
         wakeScreen();
         currentScreen=SCR_COMMAND; drawCommand(); buzz(1000,300);
       }
@@ -776,8 +799,8 @@ void webSocketEvent(WStype_t wsType, uint8_t* payload, size_t length){
         showingMessage=true;
         everReceivedCommand=true;
         lastMessage=doc["message"].as<String>(); landState=LAND_NONE;
-        lastMessageTime=doc["time"]|getNowTime();
-        if(pilotMode==MODE_MASTER){ ackPending=true; ackReceivedAt=millis(); ackDeadline=millis()+30000; buzzPhase=0; }
+        lastMessageTime=doc.containsKey("time")?doc["time"].as<String>():getNowTime();
+        if(NEEDS_ACK){ ackPending=true; ackReceivedAt=millis(); ackDeadline=millis()+30000; buzzPhase=0; }
         wakeScreen();
         currentScreen=SCR_COMMAND; drawMessage(); buzz(880,200);
       }
@@ -802,20 +825,25 @@ void webSocketEvent(WStype_t wsType, uint8_t* payload, size_t length){
         notamCode=doc["notam"]|"";
         if(currentScreen==SCR_IDLE) drawIdle();
       }
-      else if(type=="ack_overdue"){ if(pilotMode==MODE_MASTER) buzzPhase=2; }
+      else if(type=="ack_overdue"){ if(NEEDS_ACK) buzzPhase=2; }
       else if(type=="follower_ack_sync"){
-        String ackType=doc["ackType"]|"ack";
-        Serial.println("[FOLLOWER] ack_sync received, ackType="+ackType);
-        if(ackType=="ack"||ackType=="takeoff"){ landState=LAND_NONE; currentScreen=SCR_IDLE; drawIdle(); }
-        else if(ackType=="landing_ack"){ landState=LAND_COUNTDOWN; drawCommand(); }
-        else if(ackType=="landing_done"){ landState=LAND_NONE; currentScreen=SCR_IDLE; drawIdle(); }
+        // 飛聚跟隨模式自己管理回報狀態，忽略主控的回報同步
+        if(pilotMode!=MODE_GATHER){
+          String ackType=doc["ackType"]|"ack";
+          Serial.println("[FOLLOWER] ack_sync received, ackType="+ackType);
+          if(ackType=="ack"||ackType=="takeoff"){ landState=LAND_NONE; currentScreen=SCR_IDLE; drawIdle(); }
+          else if(ackType=="landing_ack"){ landState=LAND_COUNTDOWN; drawCommand(); }
+          else if(ackType=="landing_done"){ landState=LAND_NONE; currentScreen=SCR_IDLE; drawIdle(); }
+        }
       }
       else if(type=="follower_error"){ drawConnecting("序號無效或已過期"); delay(2000); drawFollowerInput(); }
       else if(type=="follower_confirm"){
         String fname=doc["followerName"]|"跟隨者";
+        String st=doc["stage"]|"";
+        String stTxt=(st=="landing_ack")?" 收到降落指令":(st=="landing_done")?" 已降落完成":(st=="takeoff")?" 已收到(起飛)":" 已確認收到";
         if(currentScreen==SCR_IDLE){
           M5.Display.fillRect(20,200,280,26,CLR_SURFACE); fXs(); M5.Display.setTextDatum(middle_center);
-          M5.Display.setTextColor(CLR_ACCENT); M5.Display.drawString(fname+" 已確認收到",160,213);
+          M5.Display.setTextColor(CLR_ACCENT); M5.Display.drawString(fname+stTxt,160,213);
         }
         buzz(1000,80);
       }
@@ -922,10 +950,10 @@ void drawIdle(){
 
   // 手動訊息跟選單狀態不同時顯示，看哪個是最新收到的
   if(showingMessage&&lastMessage.length()>0){
-    drawFitText(lastMessage,160,150,CLR_WHITE);
+    drawFitText(lastMessage,160,148,CLR_WHITE);
     if(lastMessageTime.length()>0){
       fXs(); M5.Display.setTextDatum(middle_center); M5.Display.setTextColor(CLR_GRAY);
-      M5.Display.drawString(lastMessageTime,160,178);
+      M5.Display.drawString("塔台 "+lastMessageTime+" 發送",160,180);
     }
   } else if(!everReceivedCommand){
     fSm(); M5.Display.setTextColor(CLR_GRAY); M5.Display.drawString("等待塔台來訊",160,150);
@@ -949,14 +977,14 @@ void drawIdle(){
   }
 
   // 底部按鍵說明（對應3個實體按鍵 A/B/C）
-  if(pilotMode==MODE_FOLLOWER){
+  if(IS_FOLLOWER_CONN){
     M5.Display.fillRect(0,222,320,18,CLR_SURFACE);
     int fSegW=320/3;
     M5.Display.drawFastVLine(fSegW,222,18,0x4228);
     fXs(); M5.Display.setTextDatum(middle_center); M5.Display.setTextColor(0xBDF7);
     M5.Display.drawString("亮度",fSegW/2,231);
     M5.Display.setTextColor(CLR_ACCENT);
-    M5.Display.drawString("跟隨模式 · 僅顯示",fSegW+(320-fSegW)/2,231);
+    M5.Display.drawString(pilotMode==MODE_GATHER?"飛聚跟隨 · 收到指令需回報":"跟隨模式 · 僅顯示",fSegW+(320-fSegW)/2,231);
   } else {
     M5.Display.fillRect(0,218,320,20,CLR_BG);
     M5.Display.setFont(&fonts::efontTW_24); M5.Display.setTextSize(1);
@@ -983,11 +1011,9 @@ void drawAckButton(){
   }
 }
 
-void drawFollowerConfirmButton(){
-  fXs(); M5.Display.setTextDatum(middle_center); M5.Display.setTextColor(CLR_GRAY);
-  M5.Display.drawString("跟隨模式 · 可回報已看到",160,156);
-  M5.Display.fillRoundRect(40,166,240,62,12,CLR_ACCENT);
-  fLg(); M5.Display.setTextColor(CLR_BG); M5.Display.drawString("已收到",160,197);
+void drawFollowerViewHint(){
+  fSm(); M5.Display.setTextDatum(middle_center); M5.Display.setTextColor(CLR_GRAY);
+  M5.Display.drawString("跟隨模式 · 僅顯示",160,190);
 }
 
 void drawCommand(){
@@ -1012,8 +1038,8 @@ void drawCommand(){
     fLg(); M5.Display.setTextColor(sc); M5.Display.setTextDatum(middle_center);
     M5.Display.drawString(currentStatus,160,105);
   }
-  if(pilotMode==MODE_MASTER) drawAckButton();
-  else drawFollowerConfirmButton();
+  if(NEEDS_ACK) drawAckButton();
+  else drawFollowerViewHint();
 }
 
 void drawMessage(){
@@ -1021,13 +1047,13 @@ void drawMessage(){
   M5.Display.fillRect(0,32,320,26,CLR_ACCENT);
   fXs(); M5.Display.setTextDatum(middle_center); M5.Display.setTextColor(CLR_BG);
   M5.Display.drawString("塔台訊息",160,45);
-  drawFitText(lastMessage,160,120,CLR_WHITE);
+  drawFitText(lastMessage,160,116,CLR_WHITE);
   if(lastMessageTime.length()>0){
     fXs(); M5.Display.setTextDatum(middle_center); M5.Display.setTextColor(CLR_GRAY);
-    M5.Display.drawString(lastMessageTime,160,145);
+    M5.Display.drawString("塔台 "+lastMessageTime+" 發送",160,144);
   }
-  if(pilotMode==MODE_MASTER) drawAckButton();
-  else drawFollowerConfirmButton();
+  if(NEEDS_ACK) drawAckButton();
+  else drawFollowerViewHint();
 }
 
 void drawLandingComplete(){
@@ -1141,7 +1167,7 @@ void checkConnection(){
   if(WiFi.status()!=WL_CONNECTED){ wsConnecting=false; WiFi.begin(savedSSID.c_str(),savedPassword.c_str()); return; }
   if(!wsConnected && !wsConnecting){
     wsConnecting=true;
-    if(pilotMode==MODE_FOLLOWER) connectWebSocketFollower();
+    if(IS_FOLLOWER_CONN) connectWebSocketFollower();
     else connectWebSocket();
     return;
   }
@@ -1188,7 +1214,7 @@ void checkLandDoneHold(){
   M5.Display.drawString("降落完成",160,186);
   fXs(); M5.Display.setTextColor(0x0841); M5.Display.drawString("長按3秒送出",160,208);
   if(held>=3000){
-    landDonePressed=false; sendAck("landing_done");
+    landDonePressed=false; submitAck("landing_done");
     ackPending=false; buzzPhase=0; landState=LAND_NONE; drawLandingComplete();
   }
 }
@@ -1317,7 +1343,7 @@ void onKeyboardConfirm(){
   if(kbTarget=="name"){ pilotName=kbBuffer; saveName(pilotName); currentScreen=SCR_WIFI_SCAN; startWifiScan(); }
   else if(kbTarget=="rename"){
     pilotName=kbBuffer; saveName(pilotName);
-    StaticJsonDocument<128> doc; doc["type"]=(pilotMode==MODE_FOLLOWER)?"follower_rename":"pilot_rename"; doc["name"]=pilotName;
+    StaticJsonDocument<128> doc; doc["type"]=IS_FOLLOWER_CONN?"follower_rename":"pilot_rename"; doc["name"]=pilotName;
     String o; serializeJson(doc,o); wsClient.sendTXT(o);
     currentScreen=SCR_IDLE; drawIdle();
   }
@@ -1339,9 +1365,10 @@ void handleTouch(){
   if(currentScreen==SCR_WIFI_SCAN){ handleWifiListTouch(tx,ty); return; }
   if(currentScreen==SCR_NAME_INPUT||currentScreen==SCR_WIFI_PASS||currentScreen==SCR_FOLLOWER_CODE){ handleKeyboardTouch(tx,ty); return; }
   if(currentScreen==SCR_MODE_SELECT){
-    if(ty<90&&ty>50){ kbBuffer=pilotName; kbHint="更改飛手名字（英文小寫）"; kbTarget="rename_mode"; kbShift=false; kbPage=0; kbMaxLen=10; currentScreen=SCR_NAME_INPUT; drawKeyboard(); return; }
-    if(ty>=100&&ty<=164){ pilotMode=MODE_MASTER; connectWebSocket(); }
-    else if(ty>=176&&ty<=240){ pilotMode=MODE_FOLLOWER; gpsEnabled=false; gpsFixed=false; drawFollowerInput(); }
+    if(ty>=40&&ty<70){ kbBuffer=pilotName; kbHint="更改飛手名字（英文小寫）"; kbTarget="rename_mode"; kbShift=false; kbPage=0; kbMaxLen=10; currentScreen=SCR_NAME_INPUT; drawKeyboard(); return; }
+    if(ty>=74&&ty<=122){ pilotMode=MODE_MASTER; connectWebSocket(); }
+    else if(ty>=128&&ty<=176){ pilotMode=MODE_FOLLOWER; gpsEnabled=false; gpsFixed=false; drawFollowerInput(); }
+    else if(ty>=182&&ty<=240){ pilotMode=MODE_GATHER; gpsEnabled=false; gpsFixed=false; drawFollowerInput(); }
     return;
   }
   if(currentScreen==SCR_IDLE){
@@ -1361,8 +1388,8 @@ void handleTouch(){
       else { sendArrived(); turnBtnLabel="轉點"; drawIdle(); beep2(); }
       return;
     }
-    // 跟隨模式：底部左側可調亮度
-    if(pilotMode==MODE_FOLLOWER&&ty>=222&&ty<=240&&tx<107){
+    // 跟隨／飛聚跟隨：底部左側可調亮度（待命畫面不回報，飛聚跟隨的回報在指令畫面）
+    if(IS_FOLLOWER_CONN&&ty>=222&&ty<=240&&tx<107){
       brightnessLevel=(brightnessLevel+1)%3;
       M5.Display.setBrightness(BRIGHT_VAL[brightnessLevel]); buzz(1000,50);
       drawIdle(); return;
@@ -1403,13 +1430,10 @@ void handleTouch(){
   }
   else if(currentScreen==SCR_COMMAND){
     if(tx<230&&ty>58&&ty<78&&pilotMode==MODE_MASTER){ notamHadValue=notamCode.length()>0; keypadMode=KP_NOTAM; keypadBuffer=notamCode.length()>0?notamCode.substring(1):""; drawKeypad(); return; }
-    if(ty>164&&tx>40&&tx<280&&pilotMode==MODE_MASTER){
-      if(landState==LAND_WAIT_ACK){ sendAck("landing_ack"); ackPending=false; buzzPhase=0; landState=LAND_COUNTDOWN; drawCommand(); buzz(880,150); }
+    if(ty>164&&tx>40&&tx<280&&NEEDS_ACK){
+      if(landState==LAND_WAIT_ACK){ submitAck("landing_ack"); ackPending=false; buzzPhase=0; landState=LAND_COUNTDOWN; drawCommand(); buzz(880,150); }
       else if(landState==LAND_COUNTDOWN){ landDonePressAt=millis(); landDonePressed=true; }
-      else { sendAck(currentStatus=="可以起飛"?"takeoff":"ack"); ackPending=false; buzzPhase=0; currentScreen=SCR_IDLE; drawIdle(); }
-    }
-    else if(ty>166&&ty<228&&tx>40&&tx<280&&pilotMode==MODE_FOLLOWER){
-      sendFollowerConfirm(); currentScreen=SCR_IDLE; drawIdle(); beep2();
+      else { submitAck(currentStatus=="可以起飛"?"takeoff":"ack"); ackPending=false; buzzPhase=0; currentScreen=SCR_IDLE; drawIdle(); }
     }
   }
   else if(currentScreen==SCR_END){
@@ -1452,7 +1476,7 @@ void handleButtons(){
     }
   }
   if(M5.BtnC.wasClicked()){
-    if(pilotMode==MODE_FOLLOWER) return;
+    if(pilotMode!=MODE_MASTER) return;
     if(wsConnected){
       bool duringFlight=(currentStatus=="可以起飛");
       StaticJsonDocument<64> doc;
@@ -1531,7 +1555,7 @@ void setup(){
 void loop(){
   M5.update();
   wsClient.loop();
-  if(pilotMode!=MODE_FOLLOWER) updateGpsReading();
+  if(!IS_FOLLOWER_CONN) updateGpsReading();
   unsigned long now=millis();
   if(now-lastHeartbeat>5000){ sendHeartbeat(); lastHeartbeat=now; }
   if(now-lastConnCheck>3000&&keypadMode==KP_NONE&&

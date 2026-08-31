@@ -325,10 +325,11 @@ wss.on('connection',ws=>{
         }
         const fid = 'f_'+generateClientId();
         conn.role='follower'; conn.clientId=fid; conn.masterClientId=masterPilot.clientId; conn.followerName=name;
+        conn.gather=!!msg.gather; // 飛聚跟隨模式：需強制回報給主控者
         // 加入主控的 followers 清單；同名跟隨者重連（掉線重連/換分頁）要換掉舊的，不要一直疊加重複項目
         if(!masterPilot.followers) masterPilot.followers=[];
         masterPilot.followers=masterPilot.followers.filter(f=>f.name!==name);
-        masterPilot.followers.push({clientId:fid, name});
+        masterPilot.followers.push({clientId:fid, name, gather:!!msg.gather});
         // 送出已連線
         ws.send(JSON.stringify({
           type:'follower_registered',
@@ -505,9 +506,9 @@ wss.on('connection',ws=>{
       }
 
       case 'follower_confirm':{
-        // 跟隨者簡單確認「我看到了/收到了」，回報給主控飛手本人（不是塔台）
+        // 飛聚跟隨模式：強制回報，回報給主控飛手本人（不是塔台）
         if(!conn.masterClientId) return;
-        toPilot(conn.masterClientId, {type:'follower_confirm', followerName: conn.followerName||''});
+        toPilot(conn.masterClientId, {type:'follower_confirm', followerName: conn.followerName||'', stage: msg.stage||''});
         break;
       }
 

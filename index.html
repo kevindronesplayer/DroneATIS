@@ -288,8 +288,8 @@ body{font-family:-apple-system,'Noto Sans TC',sans-serif;background:var(--bg);co
 <!-- 降落時間底部面板 -->
 <div class="land-panel" id="landPanel">
   <div class="land-panel-title">⬇ 降落時間輸入（24小時制）</div>
-  <input class="land-panel-input" id="landPanelInput" type="text" maxlength="20" inputmode="numeric" placeholder="例如 0912">
-  <div style="font-size:19px;color:var(--tx2)">輸入四個數字，例如 0912 代表 09:12</div>
+  <input class="land-panel-input" id="landPanelInput" type="text" maxlength="20" placeholder="例如 0912 或 0912直升機">
+  <div style="font-size:19px;color:var(--tx2)">前四碼為時間（0912＝09:12），後面可加原因，例如 0912直升機</div>
   <div style="display:flex;gap:10px;margin-top:4px;">
     <button id="btnLandCancel" style="background:var(--sf3);border:none;color:var(--tx2);border-radius:var(--rs);padding:14px 18px;font-size:21px;cursor:pointer;font-family:inherit;">取消</button>
     <button id="btnLandSend" style="flex:1;background:var(--am);color:#000;border:none;border-radius:var(--rs);padding:14px 20px;font-size:26px;font-weight:700;cursor:pointer;font-family:inherit;">發送</button>
@@ -405,7 +405,7 @@ function updatePilotStatus(p){
   if(!card) return;
   // 更新狀態文字
   const sub=card.querySelector('.pilot-sub');
-  if(sub) sub.textContent=`${pilotHeadline(p)} · 電量 ${p.battery??'—'}%`;
+  if(sub) sub.textContent=`${pilotHeadline(p)} · 電量 ${p.battery??'—'}%`+((p.lastCommType==='message'&&p.lastMessageTime)?` · ${p.lastMessageTime} 發送`:'');
   // 更新下拉選單顯示的狀態（不影響使用者正在選的）
   const sel=card.querySelector('.cmd-select');
   if(sel&&document.activeElement!==sel) sel.value=p.status||'開機預備';
@@ -579,7 +579,7 @@ function pilotCardHTML(p){
       </div>
       <div class="pilot-info">
         <div class="pilot-name">${p.name}</div>
-        <div class="pilot-sub">${escapeHtml(pilotHeadline(p))} · 電量 ${p.battery??'—'}%</div>
+        <div class="pilot-sub">${escapeHtml(pilotHeadline(p))} · 電量 ${p.battery??'—'}%${(p.lastCommType==='message'&&p.lastMessageTime)?' · '+escapeHtml(p.lastMessageTime)+' 發送':''}</div>
         ${(p.followers&&p.followers.length>0)?`<div class="followers-line" style="font-size:13px;color:var(--ac);margin-top:2px">👥 跟隨: ${p.followers.map(f=>f.name).join(', ')}</div>`:''}
       </div>
       <div class="tag-row">
@@ -678,17 +678,26 @@ function doSend(cid){
   handleStatusAction(cid,sel.value);
 }
 
+// 降落時間合理性檢查：比現在早，或晚超過一小時，視為可能輸入錯誤
+function landingTimeSuspicious(h,m){
+  const now=new Date();
+  const nowMin=now.getHours()*60+now.getMinutes();
+  let diff=(h*60+m)-nowMin;
+  if(diff<-720) diff+=1440;   // 跨日：例如現在 23:55、輸入 0010
+  if(diff>720) diff-=1440;
+  return diff<0 || diff>60;
+}
+
 // 降落面板事件
 document.getElementById('btnLandSend').addEventListener('click',()=>{
   let val=document.getElementById('landPanelInput').value.trim();
-  // 接受 4 個數字（如 0912）或 HH:MM 格式
-  // 支援 HHMM 或 HHMM原因 格式
+  // 接受 4 個數字（如 0912）或 HHMM原因（如 0912直升機）
   if(val.length>=4 && /^\d{4}/.test(val)){
     const hh=val.slice(0,2), mm=val.slice(2,4);
     const h=parseInt(hh), m=parseInt(mm);
     if(h>23||m>59){showToast('時間不合理，請重新輸入');return;}
-    // 保留原因部分
-    // val 直接送出，server 端解析
+    if(landingTimeSuspicious(h,m) && !confirm('請確認降落時間是否有誤')) return;
+    // 原因部分（第4碼之後）直接送出，server 端解析
   } else {
     showToast('前四碼請輸入時間，例如 1216 或 1216有軍機');
     return;

@@ -1,0 +1,4 @@
+.DS_Store
+node_modules/
+esp32_pilot/build/
+esp32_pilot_tab5/build/
