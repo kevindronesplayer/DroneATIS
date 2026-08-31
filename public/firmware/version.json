@@ -1,5 +1,5 @@
 {
-  "version": 16,
-  "notes": "主控待命畫面顯示自己的序號；飛聚跟隨回報訊息顯示10秒後自動清除；訊息發送時間標示「塔台 HH:MM 發送」",
+  "version": 17,
+  "notes": "模式選擇說明文字縮小不爆框；主控序號改放「更多」選單；飛聚跟隨待命列說明縮短；訊息發送時間改用本機時鐘備援，飛手介面務必顯示",
   "url": "https://droneatis-production.up.railway.app/firmware/esp32_pilot.bin"
 }

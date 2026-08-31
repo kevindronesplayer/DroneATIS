@@ -23,7 +23,7 @@
 #define GPS_RX_PIN    32   // Core2 PORT.A（外接I2C腳位，這裡改當UART用；訊號1=RXD）
 #define GPS_TX_PIN    33   // Core2 PORT.A（訊號2=TXD）
 #define GPS_BAUD      115200
-#define FW_VERSION    16
+#define FW_VERSION    17
 #define UPDATE_CHECK_URL "https://droneatis-production.up.railway.app/firmware/version.json"
 
 // ── NVS 儲存 ─────────────────────────────────────────────────────────────────
@@ -540,24 +540,27 @@ void drawModeSelect(){
   M5.Display.setFont(nullptr); M5.Display.setTextSize(2);
   M5.Display.setTextDatum(middle_center);
   M5.Display.setTextColor(CLR_ACCENT);
-  M5.Display.drawString("DroneATIS",160,30);
-  fXs(); M5.Display.setTextColor(CLR_GRAY);
-  M5.Display.drawString(pilotName,160,56);
+  M5.Display.drawString("DroneATIS",160,24);
+  M5.Display.setFont(nullptr); M5.Display.setTextSize(1); M5.Display.setTextColor(CLR_GRAY);
+  M5.Display.drawString(pilotName,160,46);
+  // 說明文字用縮小字避免爆框
+  #define MSSUB(txt,cy,col) do{ M5.Display.setFont(&fonts::efontTW_24); M5.Display.setTextSize(0.62); M5.Display.setTextColor(col); M5.Display.drawString(txt,160,cy); }while(0)
   // 主控模式
-  M5.Display.fillRoundRect(16,74,288,48,10,CLR_SURFACE);
-  M5.Display.drawRoundRect(16,74,288,48,10,CLR_GREEN);
-  fSm(); M5.Display.setTextColor(CLR_GREEN); M5.Display.drawString("主控模式",160,90);
-  fXs(); M5.Display.setTextColor(CLR_GRAY); M5.Display.drawString("獨立連線，可回應塔台",160,110);
+  M5.Display.fillRoundRect(16,62,288,56,10,CLR_SURFACE);
+  M5.Display.drawRoundRect(16,62,288,56,10,CLR_GREEN);
+  fSm(); M5.Display.setTextColor(CLR_GREEN); M5.Display.drawString("主控模式",160,82);
+  MSSUB("獨立連線，回應塔台",104,CLR_GRAY);
   // 跟隨模式
-  M5.Display.fillRoundRect(16,128,288,48,10,CLR_SURFACE);
-  M5.Display.drawRoundRect(16,128,288,48,10,CLR_ACCENT);
+  M5.Display.fillRoundRect(16,124,288,56,10,CLR_SURFACE);
+  M5.Display.drawRoundRect(16,124,288,56,10,CLR_ACCENT);
   fSm(); M5.Display.setTextColor(CLR_ACCENT); M5.Display.drawString("跟隨模式",160,144);
-  fXs(); M5.Display.setTextColor(CLR_GRAY); M5.Display.drawString("跟隨主控，僅顯示、不回應",160,164);
+  MSSUB("只看畫面，不回應",166,CLR_GRAY);
   // 飛聚跟隨模式
-  M5.Display.fillRoundRect(16,182,288,52,10,CLR_SURFACE);
-  M5.Display.drawRoundRect(16,182,288,52,10,CLR_AMBER);
-  fSm(); M5.Display.setTextColor(CLR_AMBER); M5.Display.drawString("飛聚跟隨模式",160,199);
-  fXs(); M5.Display.setTextColor(CLR_GRAY); M5.Display.drawString("跟隨主控，需回報（回報給主控者）",160,221);
+  M5.Display.fillRoundRect(16,186,288,52,10,CLR_SURFACE);
+  M5.Display.drawRoundRect(16,186,288,52,10,CLR_AMBER);
+  fSm(); M5.Display.setTextColor(CLR_AMBER); M5.Display.drawString("飛聚跟隨模式",160,205);
+  MSSUB("需回報，回報給主控",225,CLR_GRAY);
+  #undef MSSUB
 }
 
 // ── 序號畫面 ──────────────────────────────────────────────────────────────────
@@ -800,7 +803,8 @@ void webSocketEvent(WStype_t wsType, uint8_t* payload, size_t length){
         showingMessage=true;
         everReceivedCommand=true;
         lastMessage=doc["message"].as<String>(); landState=LAND_NONE;
-        lastMessageTime=doc.containsKey("time")?doc["time"].as<String>():getNowTime();
+        // 發送時間：優先用塔台送來的，沒有就用本機時鐘（訊息剛到，兩者幾乎一樣）
+        { String st=doc["time"]|""; if(st.length()==0) st=getNowTime(); if(st=="--:--") st=""; lastMessageTime=st; }
         if(NEEDS_ACK){ ackPending=true; ackReceivedAt=millis(); ackDeadline=millis()+30000; buzzPhase=0; }
         wakeScreen();
         currentScreen=SCR_COMMAND; drawMessage(); buzz(880,200);
@@ -925,12 +929,6 @@ void drawIdle(){
   M5.Display.setTextColor(ok?CLR_GREEN:CLR_RED);
   M5.Display.drawString(ok?("● "+towerType+" "+towerName):"● 無連線",8,46);
 
-  // 主控模式：待命畫面持續顯示自己的序號，方便報給塔台
-  if(pilotMode==MODE_MASTER && roomCode.length()>0){
-    fXs(); M5.Display.setTextDatum(middle_right); M5.Display.setTextColor(CLR_ACCENT);
-    M5.Display.drawString("序號 "+roomCode,228,46);
-  }
-
   if(pilotMode==MODE_MASTER) drawGpsBtn();
 
   // 公告框（觸控 y:58~78）
@@ -991,8 +989,9 @@ void drawIdle(){
     M5.Display.drawFastVLine(fSegW,222,18,0x4228);
     fXs(); M5.Display.setTextDatum(middle_center); M5.Display.setTextColor(0xBDF7);
     M5.Display.drawString("亮度",fSegW/2,231);
-    M5.Display.setTextColor(CLR_ACCENT);
-    M5.Display.drawString(pilotMode==MODE_GATHER?"飛聚跟隨 · 收到指令需回報":"跟隨模式 · 僅顯示",fSegW+(320-fSegW)/2,231);
+    // 說明文字縮小，避免超出螢幕或擋到左邊的「亮度」
+    M5.Display.setFont(&fonts::efontTW_24); M5.Display.setTextSize(0.6); M5.Display.setTextColor(CLR_ACCENT);
+    M5.Display.drawString(pilotMode==MODE_GATHER?"飛聚跟隨·需回報":"僅顯示，不回應",fSegW+(320-fSegW)/2,231);
   } else {
     M5.Display.fillRect(0,218,320,20,CLR_BG);
     M5.Display.setFont(&fonts::efontTW_24); M5.Display.setTextSize(1);
@@ -1126,7 +1125,11 @@ void drawMoreMenu(){
     M5.Display.fillRoundRect(20,142,280,50,10,CLR_SURFACE); M5.Display.drawRoundRect(20,142,280,50,10,CLR_GRAY);
     M5.Display.setTextColor(CLR_WHITE); M5.Display.drawString("返回選擇模式",160,167);
   }
-  fXs(); M5.Display.setTextColor(CLR_GRAY); M5.Display.drawString("點擊空白處返回",160,220);
+  fXs(); M5.Display.setTextColor(CLR_GRAY);
+  if(pilotMode==MODE_MASTER && roomCode.length()>0)
+    M5.Display.drawString("序號 "+roomCode+" · 點空白返回",160,220);
+  else
+    M5.Display.drawString("點擊空白處返回",160,220);
 }
 
 void drawWifiChangeConfirm(){
@@ -1373,10 +1376,10 @@ void handleTouch(){
   if(currentScreen==SCR_WIFI_SCAN){ handleWifiListTouch(tx,ty); return; }
   if(currentScreen==SCR_NAME_INPUT||currentScreen==SCR_WIFI_PASS||currentScreen==SCR_FOLLOWER_CODE){ handleKeyboardTouch(tx,ty); return; }
   if(currentScreen==SCR_MODE_SELECT){
-    if(ty>=40&&ty<70){ kbBuffer=pilotName; kbHint="更改飛手名字（英文小寫）"; kbTarget="rename_mode"; kbShift=false; kbPage=0; kbMaxLen=10; currentScreen=SCR_NAME_INPUT; drawKeyboard(); return; }
-    if(ty>=74&&ty<=122){ pilotMode=MODE_MASTER; connectWebSocket(); }
-    else if(ty>=128&&ty<=176){ pilotMode=MODE_FOLLOWER; gpsEnabled=false; gpsFixed=false; drawFollowerInput(); }
-    else if(ty>=182&&ty<=240){ pilotMode=MODE_GATHER; gpsEnabled=false; gpsFixed=false; drawFollowerInput(); }
+    if(ty>=36&&ty<60){ kbBuffer=pilotName; kbHint="更改飛手名字（英文小寫）"; kbTarget="rename_mode"; kbShift=false; kbPage=0; kbMaxLen=10; currentScreen=SCR_NAME_INPUT; drawKeyboard(); return; }
+    if(ty>=62&&ty<=118){ pilotMode=MODE_MASTER; connectWebSocket(); }
+    else if(ty>=124&&ty<=180){ pilotMode=MODE_FOLLOWER; gpsEnabled=false; gpsFixed=false; drawFollowerInput(); }
+    else if(ty>=186&&ty<=238){ pilotMode=MODE_GATHER; gpsEnabled=false; gpsFixed=false; drawFollowerInput(); }
     return;
   }
   if(currentScreen==SCR_IDLE){

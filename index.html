@@ -99,21 +99,23 @@ body{font-family:-apple-system,'Noto Sans TC',sans-serif;background:var(--bg);co
 .cmd-btn.active{border-color:var(--ac);background:var(--sf3);color:var(--ac);}
 .cmd-btn:disabled{opacity:.28;cursor:not-allowed;}
 
-/* 多人模式：上方飛手狀態橫條 + 底部發送區 */
-#pilotsList.multi{padding-bottom:calc(56vh + 20px);}
-.pilot-strip{display:flex;align-items:center;gap:10px;padding:11px 14px;background:var(--sf);border-bottom:1px solid var(--bd);border-left:4px solid transparent;cursor:pointer;}
+/* 多人模式：上方飛手狀態橫條（每人自帶公告/跑道/分類/跟隨者） + 底部發送區 */
+#pilotsList.multi{padding-bottom:calc(38vh + 24px);}
+.pilot-strip{background:var(--sf);border-bottom:1px solid var(--bd);border-left:4px solid transparent;padding:9px 12px;}
 .pilot-strip.sel{border-left-color:var(--ac);background:var(--sf3);}
 .pilot-strip.ack-pending{border-left-color:var(--am);}
+.strip-row1{display:flex;align-items:center;gap:10px;cursor:pointer;}
 .strip-name{font-size:23px;font-weight:700;flex-shrink:0;min-width:66px;}
 .strip-status{flex:1;font-size:19px;color:var(--tx);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
 .strip-status .sub{font-size:14px;color:var(--tx2);}
-.strip-tags{display:flex;gap:4px;flex-shrink:0;align-items:center;flex-wrap:wrap;justify-content:flex-end;max-width:44%;}
-.multi-composer{position:fixed;bottom:0;left:0;right:0;background:var(--sf);border-top:2px solid var(--ac);padding:10px 12px 16px;z-index:400;display:none;flex-direction:column;gap:8px;max-height:56vh;overflow-y:auto;}
+.strip-tags{display:flex;gap:4px;flex-shrink:0;align-items:center;flex-wrap:wrap;justify-content:flex-end;max-width:42%;}
+.strip-row2{display:flex;align-items:center;gap:8px 12px;flex-wrap:wrap;margin-top:7px;font-size:13px;color:var(--tx2);}
+.strip-row2 input,.strip-row2 select{background:var(--sf2);border:1px solid var(--bd);color:var(--tx);border-radius:6px;padding:5px 7px;font-size:13px;font-family:inherit;}
+.strip-row2 .strip-fol{color:var(--ac);flex-basis:100%;}
+.multi-composer{position:fixed;bottom:0;left:0;right:0;background:var(--sf);border-top:2px solid var(--ac);padding:10px 12px 16px;z-index:140;display:none;flex-direction:column;gap:8px;max-height:40vh;overflow-y:auto;box-shadow:0 -6px 20px rgba(0,0,0,.35);}
 .multi-composer.show{display:flex;}
 .mc-target{font-size:21px;font-weight:700;color:var(--ac);}
 .mc-lock{font-size:16px;color:var(--am);font-weight:700;}
-.mc-extra{display:flex;align-items:center;gap:10px 14px;flex-wrap:wrap;font-size:14px;color:var(--tx2);padding-top:2px;}
-.mc-extra input,.mc-extra select{background:var(--sf2);border:1px solid var(--bd);color:var(--tx);border-radius:6px;padding:6px 8px;font-size:14px;font-family:inherit;}
 
 /* GPS 位置按鈕 */
 .gps-btn{background:none;border:none;padding:4px;cursor:pointer;opacity:.5;flex-shrink:0;}
@@ -152,9 +154,9 @@ body{font-family:-apple-system,'Noto Sans TC',sans-serif;background:var(--bg);co
 .fab{position:fixed;bottom:20px;right:20px;background:var(--ac);color:#000;border:none;border-radius:50%;width:52px;height:52px;font-size:24px;display:flex;align-items:center;justify-content:center;cursor:pointer;box-shadow:0 4px 20px rgba(0,212,255,.35);z-index:50;}
 
 /* MODAL */
-.modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:200;display:none;align-items:flex-end;}
+.modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:600;display:none;align-items:flex-start;justify-content:center;overflow-y:auto;padding:24px 0;}
 .modal-overlay.show{display:flex;}
-.modal{background:var(--sf);width:100%;border-radius:20px 20px 0 0;padding:20px 20px 40px;animation:slideUp .3s ease;}
+.modal{background:var(--sf);width:100%;max-width:520px;border-radius:16px;padding:20px 20px 28px;animation:slideUp .3s ease;margin:auto;}
 @keyframes slideUp{from{transform:translateY(100%)}to{transform:translateY(0)}}
 .modal h3{font-size:19px;margin-bottom:14px;text-align:center;}
 .modal-input{width:100%;background:var(--sf2);border:1px solid var(--bd);color:var(--tx);border-radius:var(--rs);padding:11px 13px;font-size:19px;font-family:inherit;outline:none;margin-bottom:12px;}
@@ -323,7 +325,7 @@ body{font-family:-apple-system,'Noto Sans TC',sans-serif;background:var(--bg);co
   </div>
 </div>
 
-<!-- 多人模式：底部發送區（比照單人模式，發給上方選中的飛手） -->
+<!-- 多人模式：底部發送區（比照單人模式，發給上方選中的飛手；公告/跑道/分類在上方每條飛手上） -->
 <div class="multi-composer" id="multiComposer">
   <div class="mc-target" id="mcTarget">請點選上方飛手</div>
   <div class="mc-lock" id="mcLock" style="display:none;">🔒 降落鎖定中，只能再送「降落」或「馬上降落」</div>
@@ -332,7 +334,6 @@ body{font-family:-apple-system,'Noto Sans TC',sans-serif;background:var(--bg);co
     <input class="msg-inline-input" id="mcMsgInput" type="text" placeholder="輸入訊息給選中的飛手…" maxlength="50">
     <button class="btn-msg-send" id="mcMsgSend">✈ 發送</button>
   </div>
-  <div class="mc-extra" id="mcExtra"></div>
 </div>
 </div>
 
@@ -382,9 +383,12 @@ function handle(msg){
     pilots=msg.pilots;
     const conn=pilots.filter(p=>p.towerConnected&&p.wifi!==false);
     if(controlMode==='multi'){
-      // 多人模式：上方橫條重畫（無輸入框，重畫便宜），底部發送區只更新不清空訊息框
       if(selectedCid && !conn.find(p=>p.clientId===selectedCid)) selectedCid=null;
-      renderStrips(conn); syncComposer(); renderGroups();
+      const curIds=Array.from(document.querySelectorAll('.pilot-strip')).map(s=>s.dataset.cid);
+      const newIds=conn.map(p=>p.clientId);
+      if(JSON.stringify(curIds)!==JSON.stringify(newIds)) renderStrips(conn);
+      else conn.forEach(updateStrip);
+      syncComposer(); renderGroups();
     } else {
       // 只更新狀態文字，不重建DOM（避免下拉選單被重置）
       const curIds=Array.from(document.querySelectorAll('.pilot-card')).map(c=>c.id.replace('pc_',''));
@@ -601,19 +605,69 @@ function stripTagsHTML(p){
   if(p.landingLocked) t+=`<span class="ack-tag land">🔒降落</span>`;
   return t;
 }
+function stripStatusHTML(p){
+  const sub=(p.lastCommType==='message'&&p.lastMessageTime)?` · ${escapeHtml(p.lastMessageTime)} 發送`:'';
+  return `${escapeHtml(pilotHeadline(p))}<span class="sub"> · ${p.battery??'—'}%${sub}</span>`;
+}
+function stripRow2HTML(p){
+  const fol=(p.followers&&p.followers.length)?`<span class="strip-fol">👥 跟隨: ${escapeHtml(p.followers.map(f=>f.name).join(', '))}</span>`:'';
+  return `<span>飛航公告 <b style="color:${p.notam?'var(--am)':'var(--tx2)'}">${escapeHtml(p.notam||'未設定')}</b></span>`
+    +`<span>跑道 RWY <input class="strip-rwy" data-cid="${p.clientId}" inputmode="numeric" maxlength="2" value="${escapeHtml((p.rwy||'').replace('RWY',''))}" style="width:44px;letter-spacing:2px"></span>`
+    +`<span>分類 <select class="strip-grp" data-cid="${p.clientId}"><option value="">未分類</option>${groups.map(g=>`<option value="${g.groupId}" ${p.groupId===g.groupId?'selected':''}>${escapeHtml(g.name)}</option>`).join('')}</select></span>`
+    +fol;
+}
 function renderStrips(conn){
   const el=document.getElementById('pilotsList');
-  el.innerHTML=conn.map(p=>{
-    const sub=(p.lastCommType==='message'&&p.lastMessageTime)?` · ${escapeHtml(p.lastMessageTime)} 發送`:'';
-    return `<div class="pilot-strip ${p.clientId===selectedCid?'sel':''} ${p.ackPending?'ack-pending':''}" data-cid="${p.clientId}">
-      <span class="strip-name">${escapeHtml(p.name)}</span>
-      <span class="strip-status">${escapeHtml(pilotHeadline(p))}<span class="sub"> · ${p.battery??'—'}%${sub}</span></span>
-      <span class="strip-tags">${stripTagsHTML(p)}</span>
-    </div>`;
-  }).join('');
-  el.querySelectorAll('.pilot-strip').forEach(s=>{
-    s.addEventListener('click',()=>{ selectedCid=s.dataset.cid; renderStrips(conn); renderComposer(); });
+  el.innerHTML=conn.map(p=>`<div class="pilot-strip ${p.clientId===selectedCid?'sel':''} ${p.ackPending?'ack-pending':''}" id="strip_${p.clientId}" data-cid="${p.clientId}">
+      <div class="strip-row1" data-cid="${p.clientId}">
+        <span class="strip-name">${escapeHtml(p.name)}</span>
+        <span class="strip-status">${stripStatusHTML(p)}</span>
+        <span class="strip-tags">${stripTagsHTML(p)}</span>
+      </div>
+      <div class="strip-row2">${stripRow2HTML(p)}</div>
+    </div>`).join('');
+  el.querySelectorAll('.strip-row1').forEach(r=>{
+    r.addEventListener('click',()=>{ selectPilot(r.dataset.cid); });
   });
+  el.querySelectorAll('.strip-rwy').forEach(inp=>{
+    inp.addEventListener('input',()=>{
+      inp.value=inp.value.replace(/[^0-9]/g,'');
+      if(inp.value.length===2){ send({type:'tower_rwy',clientId:inp.dataset.cid,rwy:'RWY'+inp.value}); showToast('✈ 跑道改 RWY'+inp.value); }
+    });
+  });
+  el.querySelectorAll('.strip-grp').forEach(sel=>{
+    sel.addEventListener('change',()=>{
+      send({type:'tower_assign_group',clientId:sel.dataset.cid,groupId:sel.value||null});
+      const p=pilots.find(x=>x.clientId===sel.dataset.cid); if(p){ p.groupId=sel.value||null; }
+    });
+  });
+}
+function selectPilot(cid){
+  selectedCid=cid;
+  document.querySelectorAll('.pilot-strip').forEach(s=>s.classList.toggle('sel',s.dataset.cid===cid));
+  renderComposer();
+}
+// pilots_update 時：只更新每條橫條的內容，不重建（避免跑道/分類輸入被打斷）
+function updateStrip(p){
+  const el=document.getElementById('strip_'+p.clientId); if(!el) return;
+  el.classList.toggle('sel',p.clientId===selectedCid);
+  el.classList.toggle('ack-pending',!!p.ackPending);
+  const st=el.querySelector('.strip-status'); if(st) st.innerHTML=stripStatusHTML(p);
+  const tg=el.querySelector('.strip-tags'); if(tg) tg.innerHTML=stripTagsHTML(p);
+  const nm=el.querySelector('.strip-name'); if(nm) nm.textContent=p.name;
+  const nt=el.querySelector('.strip-row2 b'); if(nt){ nt.textContent=p.notam||'未設定'; nt.style.color=p.notam?'var(--am)':'var(--tx2)'; }
+  const rw=el.querySelector('.strip-rwy'); if(rw && document.activeElement!==rw) rw.value=(p.rwy||'').replace('RWY','');
+  const gp=el.querySelector('.strip-grp');
+  if(gp && document.activeElement!==gp){
+    const want=p.groupId||'';
+    if(gp.value!==want || gp.options.length!==groups.length+1){
+      gp.innerHTML=`<option value="">未分類</option>${groups.map(g=>`<option value="${g.groupId}" ${p.groupId===g.groupId?'selected':''}>${escapeHtml(g.name)}</option>`).join('')}`;
+    }
+  }
+  let fl=el.querySelector('.strip-fol');
+  const folTxt=(p.followers&&p.followers.length)?('👥 跟隨: '+p.followers.map(f=>f.name).join(', ')):'';
+  if(folTxt && !fl){ fl=document.createElement('span'); fl.className='strip-fol'; el.querySelector('.strip-row2').appendChild(fl); }
+  if(fl) fl.textContent=folTxt;
 }
 
 let composerBound=false;
@@ -660,19 +714,6 @@ function syncComposer(){
   const mi=document.getElementById('mcMsgInput');
   mi.disabled=locked; mi.placeholder=locked?'降落鎖定中，無法發送訊息':'輸入訊息給選中的飛手…';
   document.getElementById('mcMsgSend').disabled=locked;
-  // 公告 / 跑道 / 分類
-  const ex=document.getElementById('mcExtra');
-  ex.innerHTML=`<span>飛航公告 <b style="color:${p.notam?'var(--am)':'var(--tx2)'}">${escapeHtml(p.notam||'未設定')}</b></span>`
-    +`<span>跑道 RWY <input id="mcRwy" inputmode="numeric" maxlength="2" value="${escapeHtml((p.rwy||'').replace('RWY',''))}" style="width:46px;letter-spacing:2px"></span>`
-    +`<span>分類 <select id="mcGrp"><option value="">未分類</option>${groups.map(g=>`<option value="${g.groupId}" ${p.groupId===g.groupId?'selected':''}>${escapeHtml(g.name)}</option>`).join('')}</select></span>`;
-  ex.querySelector('#mcRwy').addEventListener('input',e=>{
-    e.target.value=e.target.value.replace(/[^0-9]/g,'');
-    if(e.target.value.length===2){ send({type:'tower_rwy',clientId:selectedCid,rwy:'RWY'+e.target.value}); showToast('✈ 跑道改 RWY'+e.target.value); }
-  });
-  ex.querySelector('#mcGrp').addEventListener('change',e=>{
-    send({type:'tower_assign_group',clientId:selectedCid,groupId:e.target.value||null});
-    const pp=pilots.find(x=>x.clientId===selectedCid); if(pp){ pp.groupId=e.target.value||null; renderPilots(); }
-  });
 }
 
 function buildCmdSelect(p){
