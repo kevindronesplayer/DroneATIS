@@ -23,7 +23,7 @@
 #define GPS_RX_PIN    32   // Core2 PORT.A（外接I2C腳位，這裡改當UART用；訊號1=RXD）
 #define GPS_TX_PIN    33   // Core2 PORT.A（訊號2=TXD）
 #define GPS_BAUD      115200
-#define FW_VERSION    12
+#define FW_VERSION    13
 #define UPDATE_CHECK_URL "https://droneatis-production.up.railway.app/firmware/version.json"
 
 // ── NVS 儲存 ─────────────────────────────────────────────────────────────────
@@ -47,6 +47,7 @@ String clientId       = "";
 String roomCode       = "";
 String currentStatus  = "開機預備";
 String lastMessage    = "";
+String lastMessageTime = "";  // 塔台訊息發送時間（HH:MM），跟line一樣讓飛手知道是何時發出
 bool showingMessage   = false;  // true=待命畫面顯示lastMessage，false=顯示currentStatus（兩者不同時顯示，看誰是最新的）
 bool everReceivedCommand = false;  // 塔台是否曾經真的發過指令/訊息；沒有的話開機畫面要顯示「等待塔台來訊」而不是預設的「開機預備」
 String landingTimeStr = "";
@@ -665,6 +666,13 @@ void sendAck(String ackType){
   String o; serializeJson(doc,o); wsClient.sendTXT(o);
 }
 
+void sendFollowerConfirm(){
+  if(pilotMode!=MODE_FOLLOWER) return;
+  StaticJsonDocument<64> doc;
+  doc["type"]="follower_confirm";
+  String o; serializeJson(doc,o); wsClient.sendTXT(o);
+}
+
 void sendEndSession(){
   if(pilotMode==MODE_FOLLOWER) return;
   StaticJsonDocument<64> doc; doc["type"]="pilot_end_session"; doc["pilotName"]=pilotName;
@@ -727,7 +735,7 @@ void webSocketEvent(WStype_t wsType, uint8_t* payload, size_t length){
         }
         landState=(currentStatus=="降落")?LAND_WAIT_ACK:LAND_NONE;
         String lct=doc["lastCommType"]|"status";
-        if(lct=="message"){ lastMessage=doc["lastMessage"]|""; showingMessage=(lastMessage.length()>0); }
+        if(lct=="message"){ lastMessage=doc["lastMessage"]|""; lastMessageTime=doc["lastMessageTime"]|""; showingMessage=(lastMessage.length()>0); }
         else { showingMessage=false; }
         everReceivedCommand=(doc["hasCommand"]|false);
         currentScreen=SCR_IDLE; drawIdle(); beep3();
@@ -768,6 +776,7 @@ void webSocketEvent(WStype_t wsType, uint8_t* payload, size_t length){
         showingMessage=true;
         everReceivedCommand=true;
         lastMessage=doc["message"].as<String>(); landState=LAND_NONE;
+        lastMessageTime=doc["time"]|getNowTime();
         if(pilotMode==MODE_MASTER){ ackPending=true; ackReceivedAt=millis(); ackDeadline=millis()+30000; buzzPhase=0; }
         wakeScreen();
         currentScreen=SCR_COMMAND; drawMessage(); buzz(880,200);
@@ -802,6 +811,14 @@ void webSocketEvent(WStype_t wsType, uint8_t* payload, size_t length){
         else if(ackType=="landing_done"){ landState=LAND_NONE; currentScreen=SCR_IDLE; drawIdle(); }
       }
       else if(type=="follower_error"){ drawConnecting("序號無效或已過期"); delay(2000); drawFollowerInput(); }
+      else if(type=="follower_confirm"){
+        String fname=doc["followerName"]|"跟隨者";
+        if(currentScreen==SCR_IDLE){
+          M5.Display.fillRect(20,200,280,26,CLR_SURFACE); fXs(); M5.Display.setTextDatum(middle_center);
+          M5.Display.setTextColor(CLR_ACCENT); M5.Display.drawString(fname+" 已確認收到",160,213);
+        }
+        buzz(1000,80);
+      }
       break;
     }
     case WStype_ERROR:
@@ -906,6 +923,10 @@ void drawIdle(){
   // 手動訊息跟選單狀態不同時顯示，看哪個是最新收到的
   if(showingMessage&&lastMessage.length()>0){
     drawFitText(lastMessage,160,150,CLR_WHITE);
+    if(lastMessageTime.length()>0){
+      fXs(); M5.Display.setTextDatum(middle_center); M5.Display.setTextColor(CLR_GRAY);
+      M5.Display.drawString(lastMessageTime,160,178);
+    }
   } else if(!everReceivedCommand){
     fSm(); M5.Display.setTextColor(CLR_GRAY); M5.Display.drawString("等待塔台來訊",160,150);
   } else if(hasReason){
@@ -962,6 +983,13 @@ void drawAckButton(){
   }
 }
 
+void drawFollowerConfirmButton(){
+  fXs(); M5.Display.setTextDatum(middle_center); M5.Display.setTextColor(CLR_GRAY);
+  M5.Display.drawString("跟隨模式 · 可回報已看到",160,156);
+  M5.Display.fillRoundRect(40,166,240,62,12,CLR_ACCENT);
+  fLg(); M5.Display.setTextColor(CLR_BG); M5.Display.drawString("已收到",160,197);
+}
+
 void drawCommand(){
   M5.Display.fillScreen(CLR_BG); drawTopBar();
   uint16_t bar=(currentStatus=="可以起飛")?CLR_GREEN:(currentStatus=="降落")?CLR_AMBER:CLR_RED;
@@ -985,7 +1013,7 @@ void drawCommand(){
     M5.Display.drawString(currentStatus,160,105);
   }
   if(pilotMode==MODE_MASTER) drawAckButton();
-  else { fXs(); M5.Display.setTextDatum(middle_center); M5.Display.setTextColor(CLR_GRAY); M5.Display.drawString("跟隨模式 · 僅顯示",160,200); }
+  else drawFollowerConfirmButton();
 }
 
 void drawMessage(){
@@ -994,8 +1022,12 @@ void drawMessage(){
   fXs(); M5.Display.setTextDatum(middle_center); M5.Display.setTextColor(CLR_BG);
   M5.Display.drawString("塔台訊息",160,45);
   drawFitText(lastMessage,160,120,CLR_WHITE);
+  if(lastMessageTime.length()>0){
+    fXs(); M5.Display.setTextDatum(middle_center); M5.Display.setTextColor(CLR_GRAY);
+    M5.Display.drawString(lastMessageTime,160,145);
+  }
   if(pilotMode==MODE_MASTER) drawAckButton();
-  else { fXs(); M5.Display.setTextColor(CLR_GRAY); M5.Display.drawString("跟隨模式 · 僅顯示",160,200); }
+  else drawFollowerConfirmButton();
 }
 
 void drawLandingComplete(){
@@ -1055,8 +1087,10 @@ void drawMoreMenu(){
     fSm(); M5.Display.fillRoundRect(20,174,280,38,10,CLR_SURFACE); M5.Display.drawRoundRect(20,174,280,38,10,CLR_GRAY);
     M5.Display.setTextColor(CLR_WHITE); M5.Display.drawString("返回選擇模式",160,193);
   } else {
-    M5.Display.fillRoundRect(20,100,280,50,10,CLR_SURFACE); M5.Display.drawRoundRect(20,100,280,50,10,CLR_RED);
-    fSm(); M5.Display.setTextColor(CLR_RED); M5.Display.drawString("關機",160,125);
+    M5.Display.fillRoundRect(20,80,280,50,10,CLR_SURFACE); M5.Display.drawRoundRect(20,80,280,50,10,CLR_RED);
+    fSm(); M5.Display.setTextColor(CLR_RED); M5.Display.drawString("關機",160,105);
+    M5.Display.fillRoundRect(20,142,280,50,10,CLR_SURFACE); M5.Display.drawRoundRect(20,142,280,50,10,CLR_GRAY);
+    M5.Display.setTextColor(CLR_WHITE); M5.Display.drawString("返回選擇模式",160,167);
   }
   fXs(); M5.Display.setTextColor(CLR_GRAY); M5.Display.drawString("點擊空白處返回",160,220);
 }
@@ -1362,7 +1396,8 @@ void handleTouch(){
       else if(ty>=174&&ty<=212){ pilotMode=MODE_NONE; currentScreen=SCR_MODE_SELECT; drawModeSelect(); }
       else { currentScreen=moreMenuReturnScreen; if(currentScreen==SCR_COMMAND) drawCommand(); else { currentScreen=SCR_IDLE; drawIdle(); } }
     } else {
-      if(ty>=100&&ty<=150){ drawPoweroffConfirm(); }
+      if(ty>=80&&ty<=130){ drawPoweroffConfirm(); }
+      else if(ty>=142&&ty<=192){ pilotMode=MODE_NONE; currentScreen=SCR_MODE_SELECT; drawModeSelect(); }
       else { currentScreen=moreMenuReturnScreen; if(currentScreen==SCR_COMMAND) drawCommand(); else { currentScreen=SCR_IDLE; drawIdle(); } }
     }
   }
@@ -1372,6 +1407,9 @@ void handleTouch(){
       if(landState==LAND_WAIT_ACK){ sendAck("landing_ack"); ackPending=false; buzzPhase=0; landState=LAND_COUNTDOWN; drawCommand(); buzz(880,150); }
       else if(landState==LAND_COUNTDOWN){ landDonePressAt=millis(); landDonePressed=true; }
       else { sendAck(currentStatus=="可以起飛"?"takeoff":"ack"); ackPending=false; buzzPhase=0; currentScreen=SCR_IDLE; drawIdle(); }
+    }
+    else if(ty>166&&ty<228&&tx>40&&tx<280&&pilotMode==MODE_FOLLOWER){
+      sendFollowerConfirm(); currentScreen=SCR_IDLE; drawIdle(); beep2();
     }
   }
   else if(currentScreen==SCR_END){

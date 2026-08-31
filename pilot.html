@@ -84,33 +84,10 @@ input[type=text]:focus,input[type=number]:focus{border-color:var(--ac);}
   <button class="btn" id="btnNameNext">下一步</button>
 </div>
 
-<!-- 模式選擇 -->
-<div class="page center-page" id="scrMode">
-  <div class="logo">DroneATIS</div>
-  <div class="sub" id="modeSubName"></div>
-  <div class="mode-btn" id="btnPickMaster">
-    <div class="t">主控模式</div>
-    <div class="d">獨立連線，可回應塔台</div>
-  </div>
-  <div class="mode-btn follower" id="btnPickFollower">
-    <div class="t">跟隨模式</div>
-    <div class="d">跟隨主控，僅顯示資訊</div>
-  </div>
-  <button class="btn outline" id="btnChangeName" style="margin-top:6px">更改名字</button>
-</div>
-
-<!-- 主控：顯示序號 -->
-<div class="page center-page" id="scrCode">
-  <div class="logo">DroneATIS</div>
-  <div class="sub">請將序號告知塔台人員</div>
-  <div class="code-box" id="codeText">----</div>
-  <div class="sub">序號由數字 1-4 組成，有效24小時</div>
-  <div class="sub" id="codeWaiting">等待塔台連線...</div>
-</div>
-
-<!-- 跟隨：輸入序號 -->
+<!-- 輸入主控序號 -->
 <div class="page center-page" id="scrFollowerCode">
   <div class="logo">DroneATIS</div>
+  <div class="sub" id="followerCodeName"></div>
   <div class="sub">輸入主控序號（4碼，數字1-4）</div>
   <div class="code-box" id="followerBuf" style="min-width:220px">____</div>
   <div class="keypad">
@@ -121,7 +98,7 @@ input[type=text]:focus,input[type=number]:focus{border-color:var(--ac);}
     <button class="btn gray" id="btnFollowerClr" style="max-width:none;">清除</button>
     <button class="btn" id="btnFollowerOk" style="max-width:none;">確認</button>
   </div>
-  <button class="btn outline" id="btnFollowerBack">‹ 返回選擇模式</button>
+  <button class="btn outline" id="btnFollowerBack">‹ 更改名字</button>
 </div>
 
 <!-- 主畫面 -->
@@ -172,7 +149,7 @@ input[type=text]:focus,input[type=number]:focus{border-color:var(--ac);}
   <div class="modal">
     <h3>更多功能</h3>
     <button class="btn outline" id="btnRename">更改名字</button>
-    <button class="btn outline" id="btnBackToModeSel">返回選擇模式</button>
+    <button class="btn outline" id="btnBackToModeSel">重新輸入序號</button>
     <button class="btn gray" id="btnCloseMore">關閉</button>
   </div>
 </div>
@@ -231,7 +208,7 @@ input[type=text]:focus,input[type=number]:focus{border-color:var(--ac);}
 <script>
 // ── 狀態 ──────────────────────────────────────────────────────────────
 let ws=null, wsConnecting=false, wsConnected=false;
-let pilotMode=null;        // 'master' | 'follower'
+let pilotMode=null;        // 網頁版僅支援 'follower'（連線時設定）
 let pilotName=localStorage.getItem('pilotName')||'';
 let clientId='', roomCode='', masterCode='';
 let towerConnected=false, towerName='塔台', towerTypeStr='南塔', groupName='';
@@ -263,8 +240,7 @@ function connect(){
   ws=new WebSocket(`${wsProtocol}//${location.host}`);
   ws.onopen=()=>{
     wsConnecting=false; wsConnected=true; updateConnDot();
-    if(pilotMode==='master') send({type:'pilot_register',name:pilotName,battery:getBattery(),gps:false});
-    else if(pilotMode==='follower') send({type:'follower_register',name:pilotName,masterCode});
+    send({type:'follower_register',name:pilotName,masterCode});
   };
   ws.onclose=()=>{ wsConnecting=false; wsConnected=false; updateConnDot(); scheduleReconnect(); };
   ws.onerror=()=>{ try{ws.close();}catch(e){} };
@@ -285,11 +261,6 @@ function getBattery(){
 // ── 訊息處理 ─────────────────────────────────────────────────────────
 function handle(msg){
   switch(msg.type){
-    case 'registered':
-      clientId=msg.clientId; roomCode=msg.roomCode;
-      if(msg.reconnect && towerConnected){ /* 已連線過，保持現在畫面 */ }
-      else { $('codeText').textContent=roomCode; showPage('scrCode'); }
-      break;
     case 'follower_registered':
       clientId=msg.clientId; towerConnected=true;
       groupName=msg.groupName||''; towerName=msg.towerName||'塔台'; towerTypeStr=msg.towerType||'南塔';
@@ -494,17 +465,18 @@ function toggleGps(){
 
 // ── 事件綁定：姓名/模式選擇 ──────────────────────────────────────────
 if(pilotName){ $('nameInput').value=pilotName; }
+function gotoFollowerCode(){
+  followerBuf=''; renderFollowerBuf();
+  $('followerCodeName').textContent=pilotName;
+  showPage('scrFollowerCode');
+}
 $('btnNameNext').addEventListener('click',()=>{
   const v=$('nameInput').value.trim();
   if(!v){ showToast('請輸入名字'); return; }
   pilotName=v; localStorage.setItem('pilotName',pilotName);
-  $('modeSubName').textContent=pilotName;
-  showPage('scrMode');
+  gotoFollowerCode();
 });
-$('btnChangeName').addEventListener('click',()=>{ showPage('scrName'); });
-$('btnPickMaster').addEventListener('click',()=>{ pilotMode='master'; connect(); });
-$('btnPickFollower').addEventListener('click',()=>{ showPage('scrFollowerCode'); });
-$('btnFollowerBack').addEventListener('click',()=>{ showPage('scrMode'); });
+$('btnFollowerBack').addEventListener('click',()=>{ showPage('scrName'); });
 
 let followerBuf='';
 function renderFollowerBuf(){ $('followerBuf').textContent=(followerBuf+'____').slice(0,4).split('').join(''); }
@@ -525,8 +497,7 @@ $('btnBackToModeSel').addEventListener('click',()=>{
   if(ws){ try{ws.close();}catch(e){} }
   clearInterval(heartbeatTimer); clearTimeout(reconnectTimer);
   pilotMode=null; towerConnected=false; wsConnected=false;
-  $('modeSubName').textContent=pilotName;
-  showPage('scrMode');
+  gotoFollowerCode();
 });
 $('btnRename').addEventListener('click',()=>{ hideModal('moreModal'); $('renameInput').value=pilotName; showModal('renameModal'); });
 $('btnRenameCancel').addEventListener('click',()=>hideModal('renameModal'));
@@ -619,8 +590,8 @@ $('btnEndOk').addEventListener('click',()=>{
   hideModal('endModal');
 });
 
-// ── 啟動：若先前已輸入過名字，直接到模式選擇 ──────────────────────────
-if(pilotName){ $('modeSubName').textContent=pilotName; showPage('scrMode'); }
+// ── 啟動：若先前已輸入過名字，直接到序號輸入 ──────────────────────────
+if(pilotName){ gotoFollowerCode(); }
 
 // 分頁切到背景時仍嘗試維持連線；回到前景時如果斷線就重連
 document.addEventListener('visibilitychange',()=>{

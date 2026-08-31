@@ -10,6 +10,10 @@ const groups = new Map();
 const flightLog = [];
 const commLog = [];
 let groupCounter = 1;
+// 持久化的塔台名稱/類型：改用單一保存值而不是每次即時掃描connections，
+// 避免掃描當下剛好抓不到還沒設定role的tower連線、造成飛手端顯示不到真正的塔台名稱
+let towerNameGlobal = '塔台';
+let towerTypeGlobal = '南塔';
 
 const TZ='Asia/Taipei'; // Railway 主機預設是UTC，時間顯示都要明確指定台灣時區
 function todayStr(){ return new Date().toLocaleDateString('zh-TW',{timeZone:TZ}); }
@@ -42,11 +46,7 @@ function dailyCodeForPilot(name){
 
 // 取得目前已連線的塔台資訊
 function getActiveTower(){
-  let tName='塔台'; let tType='南塔';
-  connections.forEach((c)=>{
-    if(c.role==='tower'){ if(c.towerName) tName=c.towerName; if(c.towerType) tType=c.towerType; }
-  });
-  return {tName,tType};
+  return {tName:towerNameGlobal,tType:towerTypeGlobal};
 }
 
 // 逐欄：日期 / 地點 / 台北或高雄塔台 / 塔台人員 / 飛手姓名 / 飛航公告 / 備註 / 分類 / 跑道方向 / 作業時間 / 放行時間
@@ -109,16 +109,8 @@ function bcast(data,fn=null){
   });
 }
 function toTower(data){ bcast(data,c=>c&&c.role==='tower'); }
-function getTowerName(){
-  let n='塔台';
-  connections.forEach((c)=>{ if(c.role==='tower'&&c.towerName) n=c.towerName; });
-  return n;
-}
-function getTowerType(){
-  let t='南塔';
-  connections.forEach((c)=>{ if(c.role==='tower'&&c.towerType) t=c.towerType; });
-  return t;
-}
+function getTowerName(){ return towerNameGlobal; }
+function getTowerType(){ return towerTypeGlobal; }
 function toFollowers(masterClientId, data){
   // 廣播給跟隨主控的所有跟隨者
   let sent=0;
@@ -200,8 +192,8 @@ wss.on('connection',ws=>{
     switch(msg.type){
       case 'tower_hello':
         conn.role='tower';
-        if(msg.towerName) conn.towerName=msg.towerName;
-        if(msg.towerType) conn.towerType=msg.towerType;
+        if(msg.towerName){ conn.towerName=msg.towerName; towerNameGlobal=msg.towerName; }
+        if(msg.towerType){ conn.towerType=msg.towerType; towerTypeGlobal=msg.towerType; }
         // 先送 groups_update，再送 tower_state，確保塔台先有分類資料
         ws.send(JSON.stringify({type:'groups_update',groups:groupSnap()}));
         ws.send(JSON.stringify({type:'tower_state',pilots:pilotSnap(),groups:groupSnap(),flightLog:flightLog.slice(-200),commLog:commLog.slice(-200)}));
@@ -254,13 +246,15 @@ wss.on('connection',ws=>{
           if(c&&c.clientId===msg.clientId) found=true;
         });
         console.log('[MSG] connection found:', found);
+        const msgTime=nowTimeStr();
         pilot.lastMessage=msg.message;
+        pilot.lastMessageTime=msgTime;
         pilot.lastCommType='message';
         pilot.hasCommand=true;
         pilot.ackPending=true; pilot.ackStatus='pending'; pilot.ackDeadline=Date.now()+30000;
         pushComm(pilot.name,'tower',msg.message);
-        toPilot(msg.clientId,{type:'message',message:msg.message});
-        toFollowers(msg.clientId,{type:'message',message:msg.message});
+        toPilot(msg.clientId,{type:'message',message:msg.message,time:msgTime});
+        toFollowers(msg.clientId,{type:'message',message:msg.message,time:msgTime});
         toTower({type:'pilots_update',pilots:pilotSnap()});
         break;
       }
@@ -318,8 +312,9 @@ wss.on('connection',ws=>{
         }
         const fid = 'f_'+generateClientId();
         conn.role='follower'; conn.clientId=fid; conn.masterClientId=masterPilot.clientId; conn.followerName=name;
-        // 加入主控的 followers 清單
+        // 加入主控的 followers 清單；同名跟隨者重連（掉線重連/換分頁）要換掉舊的，不要一直疊加重複項目
         if(!masterPilot.followers) masterPilot.followers=[];
+        masterPilot.followers=masterPilot.followers.filter(f=>f.name!==name);
         masterPilot.followers.push({clientId:fid, name});
         // 送出已連線
         ws.send(JSON.stringify({
@@ -331,6 +326,7 @@ wss.on('connection',ws=>{
           status: masterPilot.status,
           landingTime: masterPilot.landingTime,
           lastMessage: masterPilot.lastMessage||'',
+          lastMessageTime: masterPilot.lastMessageTime||'',
           lastCommType: masterPilot.lastCommType||'status',
           hasCommand: !!masterPilot.hasCommand,
           notam: masterPilot.notam||'',
@@ -492,6 +488,13 @@ wss.on('connection',ws=>{
         pushComm(pilot.name,'pilot','回報轉點'+(msg.viaNotam?'（公告轉點）':'')+'，約'+msg.minutes+'分鐘');
         toTower({type:'pilots_update',pilots:pilotSnap()});
         toTower({type:'pilot_turnpoint',pilotName:pilot.name,clientId:conn.clientId,minutes:msg.minutes,viaNotam:!!msg.viaNotam});
+        break;
+      }
+
+      case 'follower_confirm':{
+        // 跟隨者簡單確認「我看到了/收到了」，回報給主控飛手本人（不是塔台）
+        if(!conn.masterClientId) return;
+        toPilot(conn.masterClientId, {type:'follower_confirm', followerName: conn.followerName||''});
         break;
       }
 

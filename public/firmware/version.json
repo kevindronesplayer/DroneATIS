@@ -1,5 +1,5 @@
 {
-  "version": 12,
-  "notes": "區分「從未收過指令」與「塔台真的送開機預備」；自由訊息依字數自動縮放字體",
+  "version": 13,
+  "notes": "修正塔台名稱不顯示；跟隨模式更多可返回選擇模式；跟隨端新增簡易回報；訊息顯示發送時間",
   "url": "https://droneatis-production.up.railway.app/firmware/esp32_pilot.bin"
 }
