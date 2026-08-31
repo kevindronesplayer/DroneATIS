@@ -331,7 +331,7 @@ let inputArrows=[];
 let towerName=localStorage.getItem('towerName')||'';
 let towerType=localStorage.getItem('towerType')||'南塔';
 
-const STATUSES=['開機預備','可以起飛','連續進場','連續離場','多機進離','暫無機會','幾分鐘後有機會','馬上降落','降落'];
+const STATUSES=['開機預備','可以起飛','待飛機進場','待飛機離場','多機進離','暫無機會','幾分鐘後有機會','馬上降落','降落'];
 
 const ACK_MAP={
   'pending':['pending','等待回應'],
@@ -351,6 +351,41 @@ function connect(){
 }
 function send(d){if(ws&&ws.readyState===1)ws.send(JSON.stringify(d));}
 
+// ── 飛手回報時提醒塔台（音效 + 震動 + 背景系統通知）─────────────────
+let _ac=null, _lastNotify={t:0,b:''}, _lastAck={};
+function _initAudio(){ try{ if(!_ac) _ac=new (window.AudioContext||window.webkitAudioContext)(); if(_ac.state==='suspended') _ac.resume(); }catch(e){} }
+function towerBeep(){
+  _initAudio(); if(!_ac) return;
+  [[880,0],[1180,0.16]].forEach(([f,t])=>{
+    const o=_ac.createOscillator(), g=_ac.createGain();
+    o.type='sine'; o.frequency.value=f; o.connect(g); g.connect(_ac.destination);
+    const s=_ac.currentTime+t;
+    g.gain.setValueAtTime(0.0001,s);
+    g.gain.exponentialRampToValueAtTime(0.3,s+0.02);
+    g.gain.exponentialRampToValueAtTime(0.0001,s+0.13);
+    o.start(s); o.stop(s+0.15);
+  });
+}
+function notifyTower(title, body){
+  const now=Date.now();
+  if(body && body===_lastNotify.b && now-_lastNotify.t<2500) return; // 去重，避免同事件連叫兩次
+  _lastNotify={t:now,b:body};
+  towerBeep();
+  try{ navigator.vibrate && navigator.vibrate([150,80,150]); }catch(e){}
+  try{
+    if(window.Notification && Notification.permission==='granted' && document.hidden){
+      const n=new Notification(title,{body,tag:'droneatis',renotify:true});
+      n.onclick=()=>{ try{window.focus();}catch(e){} n.close(); };
+      setTimeout(()=>n.close(),8000);
+    }
+  }catch(e){}
+}
+// 首次互動：解鎖音效、要求通知權限（Chrome/Android 有效；iOS 靠音效+震動）
+['click','touchstart'].forEach(ev=>document.addEventListener(ev,()=>{
+  _initAudio();
+  try{ if(window.Notification && Notification.permission==='default') Notification.requestPermission(); }catch(e){}
+},{once:true}));
+
 function handle(msg){
   if(msg.type==='tower_state'){
     groups=msg.groups;   // 先設定 groups
@@ -366,6 +401,16 @@ function handle(msg){
   }
   else if(msg.type==='pilots_update'){
     pilots=msg.pilots;
+    // 偵測飛手剛回報（ackStatus 由 pending/空 變成已回應）→ 提醒塔台
+    pilots.forEach(p=>{
+      const prev=_lastAck[p.clientId];
+      if(p.ackStatus && p.ackStatus!=='pending' && p.ackStatus!==prev && prev!==undefined){
+        // landing_done 由 pilot_land_report 事件負責提醒，這裡略過避免叫兩次
+        const lbl={ack:'已收到',takeoff:'已起飛',landing_ack:'收到降落指令'}[p.ackStatus];
+        if(lbl) notifyTower('飛手回報', p.name+' '+lbl);
+      }
+      _lastAck[p.clientId]=p.ackStatus||'';
+    });
     const conn=pilots.filter(p=>p.towerConnected&&p.wifi!==false);
     if(selectedCid && !conn.find(p=>p.clientId===selectedCid)) selectedCid=null;
     const curIds=Array.from(document.querySelectorAll('.pilot-strip')).map(s=>s.dataset.cid);
@@ -375,28 +420,34 @@ function handle(msg){
     syncComposer(); renderGroups();
   }
   else if(msg.type==='groups_update'){groups=msg.groups;renderGroups();renderPilots();}
-  else if(msg.type==='session_ended'){showToast(`${msg.pilotName} 已結束作業`);}
+  else if(msg.type==='session_ended'){showToast(`${msg.pilotName} 已結束作業`);notifyTower('飛手回報',`${msg.pilotName} 結束作業`);}
   else if(msg.type==='pilot_asking'){
     showAskAlert(msg.pilotName, msg.clientId, msg.askType);
+    notifyTower('飛手詢問', `${msg.pilotName} ${msg.askType==='duration'?'詢問放行時長':'詢問機場狀況'}`);
   }
   else if(msg.type==='pilot_notam_update'){
     // 直接更新對應飛手的 notam
     const np=pilots.find(x=>x.clientId===msg.clientId);
     if(np) np.notam=msg.notam;
     showNotamAlert(msg.pilotName, msg.notam, msg.clientId);
+    notifyTower('飛手回報', `${msg.pilotName} 更新飛航公告 ${msg.notam}`);
     renderPilots();
   }
   else if(msg.type==='pilot_turnpoint'){
     showTurnpointAlert(msg.pilotName, msg.minutes, msg.viaNotam, msg.clientId);
+    notifyTower('飛手回報', `${msg.pilotName} 回報轉點 約${msg.minutes}分`);
   }
   else if(msg.type==='pilot_arrived'){
     showArrivedAlert(msg.pilotName, msg.clientId);
+    notifyTower('飛手回報', `${msg.pilotName} 已就位`);
   }
   else if(msg.type==='pilot_land_report'){
     // 直接更新本地 pilots 的狀態，不等 pilots_update
     const lp=pilots.find(x=>x.clientId===msg.clientId);
     if(lp){ lp.status='降落'; lp.ackStatus='landing_done'; lp.ackPending=false; }
+    _lastAck[msg.clientId]='landing_done'; // 避免隨後的 pilots_update 重複提醒
     showLandAlert(msg.pilotName, msg.clientId);
+    notifyTower('飛手回報', `${msg.pilotName} 回報降落`);
     renderPilots();
   }
   else if(msg.type==='error'){showToast('⚠️ '+msg.message);}

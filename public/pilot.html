@@ -247,7 +247,8 @@ function handle(msg){
       currentStatus=msg.status;
       lastMessageTime=msg.time||nowClock(); // 塔台這次來訊的時間（指令也要顯示，跟 line 一樣）
       if(msg.immediate){
-        const total=(getNowTotalSecs()+60)%86400;
+        // 馬上降落：抓「下下一分鐘」當降落時間，配合「HHMM 表示要在 HH:MM 前降完」，倒數約 1~2 分
+        const total=(getNowTotalSecs()+120)%86400;
         landingTimeStr=String(Math.floor(total/3600)).padStart(2,'0')+String(Math.floor(total/60)%60).padStart(2,'0');
         landingReason='';
       } else applyLandingTime(msg.landingTime);
@@ -302,9 +303,10 @@ function applyLandingTime(raw){
 }
 function getNowTotalSecs(){ const d=new Date(); return d.getHours()*3600+d.getMinutes()*60+d.getSeconds(); }
 function landTimeSecs(){
+  // 輸入 HHMM 代表「要在 HH:MM 前完成降落」，故截止點為 HH:(MM-1):59
   if(!landingTimeStr||landingTimeStr.length<4) return 0;
   const lh=parseInt(landingTimeStr.slice(0,2),10), lm=parseInt(landingTimeStr.slice(2,4),10);
-  return lh*3600+lm*60+59;
+  let s=lh*3600+lm*60-1; if(s<0) s+=86400; return s;
 }
 function getLandTimeDisplay(){
   if(!landingTimeStr||landingTimeStr.length<4) return '';

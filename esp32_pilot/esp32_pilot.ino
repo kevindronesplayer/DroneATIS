@@ -23,7 +23,7 @@
 #define GPS_RX_PIN    32   // Core2 PORT.A（外接I2C腳位，這裡改當UART用；訊號1=RXD）
 #define GPS_TX_PIN    33   // Core2 PORT.A（訊號2=TXD）
 #define GPS_BAUD      115200
-#define FW_VERSION    19
+#define FW_VERSION    20
 #define UPDATE_CHECK_URL "https://droneatis-production.up.railway.app/firmware/version.json"
 
 // ── NVS 儲存 ─────────────────────────────────────────────────────────────────
@@ -184,10 +184,11 @@ int getNowTotalSecs(){
   return t.tm_hour*3600+t.tm_min*60+t.tm_sec;
 }
 int landTimeSecs(){
+  // 輸入 HHMM 代表「要在 HH:MM 前完成降落」，截止點為 HH:(MM-1):59
   if(landingTimeStr.length()<4) return 0;
   int lh=landingTimeStr.substring(0,2).toInt();
   int lm=landingTimeStr.substring(2,4).toInt();
-  return lh*3600+lm*60+59;
+  int s=lh*3600+lm*60-1; if(s<0) s+=86400; return s;
 }
 String getLandTimeDisplay(){
   if(landingTimeStr.length()<4) return "";
@@ -781,8 +782,8 @@ void webSocketEvent(WStype_t wsType, uint8_t* payload, size_t length){
         JsonVariant lt=doc["landingTime"];
         landingReason="";
         if(immediateLand){
-          // 馬上降落：以飛手裝置自己的時鐘，從收到指令起算倒數1分鐘，避免與塔台時鐘不同步
-          int total=(getNowTotalSecs()+60)%86400;
+          // 馬上降落：抓「下下一分鐘」當降落時間，配合「HHMM 表示要在 HH:MM 前降完」，倒數約 1~2 分
+          int total=(getNowTotalSecs()+120)%86400;
           char buf[5]; sprintf(buf,"%02d%02d",total/3600,(total/60)%60);
           landingTimeStr=String(buf);
         }

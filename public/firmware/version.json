@@ -1,5 +1,5 @@
 {
-  "version": 19,
-  "notes": "塔台來訊時間改放在訊息內容上方，不再重疊",
+  "version": 20,
+  "notes": "降落倒數基準修正：輸入 HHMM 代表要在 HH:MM 前降完（如 2300 → 22:59:59）；馬上降落抓下下一分鐘",
   "url": "https://droneatis-production.up.railway.app/firmware/esp32_pilot.bin"
 }
