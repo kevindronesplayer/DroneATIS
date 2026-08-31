@@ -160,6 +160,7 @@ function applyStatus(pilot,status,landingTime){
   }
   if(status==='降落'){
     flightLog.push({date:todayStr(),groupName:gn,pilotName:pilot.name,type:'landing',time:nowTimeStr(),rwy:pilot.rwy||'',towerName:tName,towerType:tType});
+    pilot.landingLocked=true; // 送出降落/馬上降落後鎖定，飛手回報降落前塔台不能再發其他指令/訊息給這個飛手
   }
   pushComm(pilot.name,'tower',status+(landingTime?(' '+landingTime):''));
   pilot.ackPending=true;
@@ -167,10 +168,14 @@ function applyStatus(pilot,status,landingTime){
   pilot.ackDeadline=Date.now()+30000;
 }
 
+// 送出降落/馬上降落後鎖定；鎖定中只允許再次送「降落」（例如更新時間），其他指令/訊息要擋掉
+function canSendToPilot(pilot,newStatus){ return !pilot.landingLocked || newStatus==='降落'; }
+
 function updateGroupStatus(groupId,status,landingTime,immediate){
   const g=groups.get(groupId); if(!g) return;
   g.memberIds.forEach(cid=>{
     const p=pilots.get(cid); if(!p) return;
+    if(!canSendToPilot(p,status)) return; // 跳過正在降落鎖定中的飛手，不影響同分類其他人
     applyStatus(p,status,landingTime);
     toPilot(cid,{type:'command',status,landingTime:landingTime||null,immediate:!!immediate,groupName:groupName(groupId)});
     toFollowers(cid,{type:'follower_sync',status,landingTime:landingTime||null,immediate:!!immediate,groupName:groupName(groupId)});
@@ -223,6 +228,10 @@ wss.on('connection',ws=>{
         const pilot=pilots.get(clientId); if(!pilot) return;
         if(pilot.groupId) updateGroupStatus(pilot.groupId,status,landingTime,immediate);
         else{
+          if(!canSendToPilot(pilot,status)){
+            ws.send(JSON.stringify({type:'error',message:pilot.name+' 正在降落中，尚未回報，無法發送其他指令'}));
+            return;
+          }
           applyStatus(pilot,status,landingTime);
           toPilot(clientId,{type:'command',status,landingTime:landingTime||null,immediate:!!immediate,groupName:''});
           toFollowers(clientId,{type:'follower_sync',status,landingTime:landingTime||null,immediate:!!immediate,groupName:''});
@@ -246,6 +255,10 @@ wss.on('connection',ws=>{
           if(c&&c.clientId===msg.clientId) found=true;
         });
         console.log('[MSG] connection found:', found);
+        if(!canSendToPilot(pilot,null)){
+          ws.send(JSON.stringify({type:'error',message:pilot.name+' 正在降落中，尚未回報，無法發送訊息'}));
+          break;
+        }
         const msgTime=nowTimeStr();
         pilot.lastMessage=msg.message;
         pilot.lastMessageTime=msgTime;
@@ -424,7 +437,7 @@ wss.on('connection',ws=>{
         const ackType=msg.ackType||'ack'; // ack / takeoff / landing_ack / landing_done
         pilot.ackPending = (ackType==='landing_ack'); // landing_ack 後還要等 landing_done
         pilot.ackStatus=ackType;
-        if(ackType==='landing_done') pilot.ackPending=false;
+        if(ackType==='landing_done'){ pilot.ackPending=false; pilot.landingLocked=false; }
         toTower({type:'pilots_update',pilots:pilotSnap()});
         console.log('[ACK] master clientId:', conn.clientId, 'ackType:', ackType);
         let followerCount=0;
@@ -515,6 +528,7 @@ wss.on('connection',ws=>{
         pilot.status='降落';
         pilot.ackStatus='landing_done';  // 更新回應狀態為已降落
         pilot.ackPending=false;
+        pilot.landingLocked=false;
         const gn=groupName(pilot.groupId);
         const {tName,tType}=getActiveTower();
         const ldTime=nowTimeStr().replace(':','');
@@ -528,9 +542,14 @@ wss.on('connection',ws=>{
       case 'tower_rwy':{
         const pilot=pilots.get(msg.clientId);
         if(!pilot) return;
-        pilot.rwy=msg.rwy;
-        toPilot(msg.clientId,{type:'rwy_update',rwy:msg.rwy});
-        toFollowers(msg.clientId,{type:'rwy_update',rwy:msg.rwy});
+        // 同分類的飛手要一起同步跑道方向，不是只有被點的那個
+        const targets = pilot.groupId ? (groups.get(pilot.groupId)?.memberIds||[msg.clientId]) : [msg.clientId];
+        targets.forEach(cid=>{
+          const p=pilots.get(cid); if(!p) return;
+          p.rwy=msg.rwy;
+          toPilot(cid,{type:'rwy_update',rwy:msg.rwy});
+          toFollowers(cid,{type:'rwy_update',rwy:msg.rwy});
+        });
         toTower({type:'pilots_update',pilots:pilotSnap()});
         break;
       }
