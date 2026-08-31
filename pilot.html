@@ -128,7 +128,6 @@ input[type=text]:focus,input[type=number]:focus{border-color:var(--ac);}
     <div class="notam-row" id="notamRow">
       <span class="lbl">飛航公告</span>
       <span class="val" id="notamVal">未設定</span>
-      <span class="iconbtn" id="btnNotamEdit" style="display:none;">輸入</span>
     </div>
     <div class="status-card">
       <div class="headline" id="headlineText" style="font-size:26px;">等待塔台來訊</div>
@@ -138,23 +137,10 @@ input[type=text]:focus,input[type=number]:focus{border-color:var(--ac);}
       <div class="land-reason" id="landReasonText" style="display:none;"></div>
       <div class="tag-pending" id="pendingTag" style="display:none;">等待回應</div>
     </div>
-    <div id="landBtnWrap" style="display:none;">
-      <button class="land-btn" id="btnLandReport">回報降落</button>
-    </div>
     <div id="ackWrap" style="display:none;">
       <button class="btn green" id="btnAck" style="max-width:none;">收到</button>
     </div>
-    <div id="masterActions" style="display:none;">
-      <div class="action-grid">
-        <button class="btn amber" id="btnAsk">詢問機場狀況</button>
-        <button class="btn" id="btnTurnpoint">轉點</button>
-      </div>
-    </div>
     <div class="readonly-banner" id="followerBanner" style="display:none;">跟隨模式 · 僅顯示</div>
-  </div>
-  <div class="footer-actions" id="footerActions">
-    <button class="btn outline" id="btnGps">GPS：關閉</button>
-    <button class="btn outline red" id="btnEndSession">結束任務</button>
   </div>
 </div>
 
@@ -165,50 +151,8 @@ input[type=text]:focus,input[type=number]:focus{border-color:var(--ac);}
   <div class="modal">
     <h3>更多功能</h3>
     <button class="btn outline" id="btnRename">更改名字</button>
-    <button class="btn outline" id="btnBackToModeSel">重新輸入序號</button>
+    <button class="btn outline" id="btnBackToModeSel">重新選擇模式</button>
     <button class="btn gray" id="btnCloseMore">關閉</button>
-  </div>
-</div>
-
-<!-- 公告輸入 -->
-<div class="modal-overlay" id="notamModal">
-  <div class="modal">
-    <h3>輸入飛航公告（U + 4碼）</h3>
-    <input type="text" id="notamInput" maxlength="4" inputmode="numeric" placeholder="4個數字">
-    <div class="row"><button class="btn gray" id="btnNotamCancel">取消</button><button class="btn" id="btnNotamOk">確定</button></div>
-  </div>
-</div>
-
-<!-- 是否轉點（公告二次輸入） -->
-<div class="modal-overlay" id="notamTurnModal">
-  <div class="modal">
-    <h3>是否轉點？</h3>
-    <div class="row"><button class="btn gray" id="btnNotamTurnNo">否</button><button class="btn" id="btnNotamTurnYes">是</button></div>
-  </div>
-</div>
-
-<!-- 轉點分鐘數 -->
-<div class="modal-overlay" id="minutesModal">
-  <div class="modal">
-    <h3 id="minutesTitle">轉點時間（大約幾分鐘）</h3>
-    <input type="number" id="minutesInput" inputmode="numeric" placeholder="分鐘數" min="1">
-    <div class="row"><button class="btn gray" id="btnMinutesCancel">取消</button><button class="btn" id="btnMinutesOk">送出</button></div>
-  </div>
-</div>
-
-<!-- 降落確認 -->
-<div class="modal-overlay" id="landModal">
-  <div class="modal">
-    <h3>確定回報降落？</h3>
-    <div class="row"><button class="btn gray" id="btnLandCancel">取消</button><button class="btn amber" id="btnLandOk">確定</button></div>
-  </div>
-</div>
-
-<!-- 結束任務確認 -->
-<div class="modal-overlay" id="endModal">
-  <div class="modal">
-    <h3>確定結束任務？</h3>
-    <div class="row"><button class="btn gray" id="btnEndCancel">取消</button><button class="btn red" id="btnEndOk">確定</button></div>
   </div>
 </div>
 
@@ -223,10 +167,11 @@ input[type=text]:focus,input[type=number]:focus{border-color:var(--ac);}
 
 <script>
 // ── 狀態 ──────────────────────────────────────────────────────────────
+// 網頁版只有兩種跟隨角色，沒有主控模式
 let ws=null, wsConnecting=false, wsConnected=false;
-let pilotMode=null;        // 網頁版僅支援 'follower'（連線時設定）
 let followerKind='view';   // 'view'=跟隨模式(僅顯示) / 'gather'=飛聚跟隨模式(強制回報主控)
 let gatherMode=false;      // followerKind==='gather' 的快取
+let connected=false;       // 是否已進入主畫面（取代舊的 pilotMode 判斷）
 let lastNagAt=0;
 let pilotName=localStorage.getItem('pilotName')||'';
 let clientId='', roomCode='', masterCode='';
@@ -236,12 +181,7 @@ let currentStatus='開機預備', lastMessage='', lastMessageTime='', showingMes
 let landingTimeStr='', landingReason='';
 let ackPending=false, ackDeadline=0;
 let landState='none'; // none | wait_ack | countdown
-let turnBtnLabel='就位';
-let turnpointSource=0; // 1=按鈕觸發, 2=公告二次輸入觸發
-let notamHadValue=false;
-let gpsEnabled=false, gpsWatchId=null, gpsLat=null, gpsLng=null;
 let heartbeatTimer=null, clockTimer=null, reconnectTimer=null;
-let hasBeenTowerConnectedRecently=false;
 
 function $(id){return document.getElementById(id);}
 function showPage(id){document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));$(id).classList.add('active');}
@@ -267,11 +207,10 @@ function connect(){
 }
 function scheduleReconnect(){
   clearTimeout(reconnectTimer);
-  reconnectTimer=setTimeout(()=>{ if(pilotMode) connect(); },4000);
+  reconnectTimer=setTimeout(()=>{ if(masterCode) connect(); },4000);
 }
 function updateConnDot(){
-  const ok=wsConnected&&towerConnected;
-  $('connDot').classList.toggle('on', pilotMode==='follower'? wsConnected : ok);
+  $('connDot').classList.toggle('on', wsConnected);
 }
 function getBattery(){
   return 100; // 網頁版無法讀取硬體電量，固定回報100
@@ -312,13 +251,13 @@ function handle(msg){
       } else applyLandingTime(msg.landingTime);
       if(msg.groupName!==undefined && msg.groupName!=='') groupName=msg.groupName;
       landState=(currentStatus==='降落')?'wait_ack':'none';
-      if(pilotMode==='master'||gatherMode){ ackPending=true; ackDeadline=Date.now()+30000; lastNagAt=Date.now(); }
+      if(gatherMode){ ackPending=true; ackDeadline=Date.now()+30000; lastNagAt=Date.now(); }
       renderMain(); beep(880); vibrate();
       break;
     case 'message':
       showingMessage=true; everReceivedCommand=true;
       lastMessage=msg.message; lastMessageTime=msg.time||''; landState='none';
-      if(pilotMode==='master'||gatherMode){ ackPending=true; ackDeadline=Date.now()+30000; lastNagAt=Date.now(); }
+      if(gatherMode){ ackPending=true; ackDeadline=Date.now()+30000; lastNagAt=Date.now(); }
       renderMain(); beep(660); vibrate();
       break;
     case 'group_update':
@@ -332,7 +271,6 @@ function handle(msg){
       notamCode=msg.notam||''; renderMain();
       break;
     case 'ack_overdue':
-      if(pilotMode==='master'){ showToast('⚠️ 尚未回應塔台指令'); beep(440); vibrate(); }
       break;
     case 'follower_ack_sync':
       if(gatherMode) break; // 飛聚跟隨自己管理回報狀態，忽略主控的回報同步
@@ -372,12 +310,10 @@ function getLandTimeDisplay(){
 
 // ── 畫面切換 ─────────────────────────────────────────────────────────
 function enterMain(){
+  connected=true;
   $('mainName').textContent=pilotName;
-  $('followerBanner').style.display = pilotMode==='follower' ? 'block' : 'none';
+  $('followerBanner').style.display='block';
   $('followerBanner').textContent = gatherMode ? '飛聚跟隨模式 · 收到指令須回報主控' : '跟隨模式 · 僅顯示';
-  $('masterActions').style.display = pilotMode==='master' ? 'block' : 'none';
-  $('footerActions').style.display = pilotMode==='master' ? 'flex' : 'none';
-  $('btnNotamEdit').style.display = pilotMode==='master' ? 'inline-block' : 'none';
   showPage('scrMain');
   renderMain();
   startHeartbeat();
@@ -393,7 +329,7 @@ function gatherNag(){
 
 function renderMain(){
   updateConnDot();
-  $('notamVal').textContent = notamCode || (pilotMode==='master' ? '點擊輸入' : '未設定');
+  $('notamVal').textContent = notamCode || '未設定';
   $('notamVal').style.color = notamCode ? 'var(--am)' : 'var(--tx2)';
 
   const metaBits=[];
@@ -424,17 +360,11 @@ function renderMain(){
     }
   }
 
-  const canAck = (pilotMode==='master'||gatherMode);
-  $('pendingTag').style.display = (canAck&&ackPending) ? 'inline-block' : 'none';
+  // 只有飛聚跟隨模式要回報
+  $('pendingTag').style.display = (gatherMode&&ackPending) ? 'inline-block' : 'none';
   // 待回應時、或降落倒數中（還要按「降落完成」）都要保留按鈕
-  $('ackWrap').style.display = (canAck && (ackPending || landState==='countdown')) ? 'block' : 'none';
+  $('ackWrap').style.display = (gatherMode && (ackPending || landState==='countdown')) ? 'block' : 'none';
   $('btnAck').textContent = landState==='countdown' ? '降落完成' : (landState==='wait_ack' ? '收到降落指令' : '收到');
-
-  $('landBtnWrap').style.display = (pilotMode==='master'&&currentStatus==='可以起飛') ? 'block' : 'none';
-  $('btnAsk').textContent = currentStatus==='可以起飛' ? '詢問放行時長' : '詢問機場狀況';
-  $('btnTurnpoint').textContent=turnBtnLabel;
-  $('btnGps').textContent='GPS：'+(gpsEnabled?'開啟':'關閉');
-  $('btnGps').classList.toggle('green', gpsEnabled);
 
   renderCountdown();
 }
@@ -459,11 +389,7 @@ function startHeartbeat(){
 }
 function sendHeartbeat(){
   if(!wsConnected) return;
-  const payload={type:'pilot_update',battery:getBattery(),wifi:true};
-  if(!gpsEnabled) payload.gps=false;
-  else if(gpsLat!=null){ payload.gps=true; payload.lat=gpsLat; payload.lng=gpsLng; }
-  else payload.gps='searching';
-  send(payload);
+  send({type:'pilot_update',battery:getBattery(),wifi:true,gps:false});
 }
 
 // ── 蜂鳴/震動（網頁版沒有實體喇叭，用短音效+震動代替） ──────────────
@@ -478,23 +404,6 @@ function beep(freq){
   }catch(e){}
 }
 function vibrate(){ if(navigator.vibrate) navigator.vibrate(200); }
-
-// ── GPS（瀏覽器定位取代硬體GPS模組） ─────────────────────────────────
-function toggleGps(){
-  gpsEnabled=!gpsEnabled;
-  if(gpsEnabled){
-    if(!navigator.geolocation){ showToast('此裝置不支援定位'); gpsEnabled=false; renderMain(); return; }
-    gpsWatchId=navigator.geolocation.watchPosition(
-      pos=>{ gpsLat=pos.coords.latitude; gpsLng=pos.coords.longitude; },
-      err=>{ showToast('定位失敗：'+err.message); },
-      {enableHighAccuracy:true,maximumAge:5000,timeout:10000}
-    );
-  } else {
-    if(gpsWatchId!=null) navigator.geolocation.clearWatch(gpsWatchId);
-    gpsWatchId=null; gpsLat=null; gpsLng=null;
-  }
-  renderMain(); sendHeartbeat();
-}
 
 // ── 事件綁定：姓名/模式選擇 ──────────────────────────────────────────
 if(pilotName){ $('nameInput').value=pilotName; }
@@ -526,7 +435,7 @@ document.querySelectorAll('#scrFollowerCode .kp-btn').forEach(b=>b.addEventListe
 $('btnFollowerClr').addEventListener('click',()=>{ followerBuf=''; renderFollowerBuf(); });
 $('btnFollowerOk').addEventListener('click',()=>{
   if(followerBuf.length!==4){ showToast('請輸入4碼序號'); return; }
-  masterCode=followerBuf; pilotMode='follower'; connect();
+  masterCode=followerBuf; connect();
 });
 
 // ── 事件綁定：主畫面 ─────────────────────────────────────────────────
@@ -536,7 +445,7 @@ $('btnBackToModeSel').addEventListener('click',()=>{
   hideModal('moreModal');
   if(ws){ try{ws.close();}catch(e){} }
   clearInterval(heartbeatTimer); clearTimeout(reconnectTimer);
-  pilotMode=null; towerConnected=false; wsConnected=false; ackPending=false;
+  connected=false; masterCode=''; towerConnected=false; wsConnected=false; ackPending=false;
   showModeSelect();
 });
 $('btnRename').addEventListener('click',()=>{ hideModal('moreModal'); $('renameInput').value=pilotName; showModal('renameModal'); });
@@ -545,64 +454,14 @@ $('btnRenameOk').addEventListener('click',()=>{
   const v=$('renameInput').value.trim();
   if(!v) return;
   pilotName=v; localStorage.setItem('pilotName',pilotName);
-  send({type: pilotMode==='follower' ? 'follower_rename' : 'pilot_rename', name:pilotName});
+  send({type:'follower_rename', name:pilotName});
   $('mainName').textContent=pilotName;
   hideModal('renameModal');
 });
 
-// 公告
-$('btnNotamEdit').addEventListener('click',()=>{
-  notamHadValue = notamCode.length>0;
-  $('notamInput').value = notamCode ? notamCode.slice(1) : '';
-  showModal('notamModal');
-});
-$('notamRow').addEventListener('click',()=>{ if(pilotMode==='master') $('btnNotamEdit').click(); });
-$('btnNotamCancel').addEventListener('click',()=>hideModal('notamModal'));
-$('btnNotamOk').addEventListener('click',()=>{
-  const v=$('notamInput').value.trim();
-  if(!/^\d{4}$/.test(v)){ showToast('請輸入4個數字'); return; }
-  notamCode='U'+v;
-  send({type:'pilot_notam',notam:notamCode,pilotName});
-  hideModal('notamModal'); renderMain();
-  if(notamHadValue) showModal('notamTurnModal');
-});
-$('btnNotamTurnNo').addEventListener('click',()=>hideModal('notamTurnModal'));
-$('btnNotamTurnYes').addEventListener('click',()=>{
-  hideModal('notamTurnModal');
-  turnpointSource=2; $('minutesTitle').textContent='轉點時間（大約幾分鐘）'; $('minutesInput').value='';
-  showModal('minutesModal');
-});
-
-// 轉點／就位
-$('btnTurnpoint').addEventListener('click',()=>{
-  if(turnBtnLabel==='轉點'){
-    turnpointSource=1; $('minutesTitle').textContent='轉點時間（大約幾分鐘）'; $('minutesInput').value='';
-    showModal('minutesModal');
-  } else {
-    send({type:'pilot_arrived',pilotName});
-    turnBtnLabel='轉點'; renderMain(); showToast('已回報就位');
-  }
-});
-$('btnMinutesCancel').addEventListener('click',()=>{ hideModal('minutesModal'); turnpointSource=0; });
-$('btnMinutesOk').addEventListener('click',()=>{
-  const n=parseInt($('minutesInput').value,10);
-  if(!n||n<=0){ showToast('請輸入有效分鐘數'); return; }
-  send({type:'pilot_turnpoint',pilotName,minutes:n,viaNotam:turnpointSource===2});
-  if(turnpointSource===1) turnBtnLabel='就位';
-  turnpointSource=0; hideModal('minutesModal'); renderMain(); showToast('已回報轉點');
-});
-
-// 詢問
-$('btnAsk').addEventListener('click',()=>{
-  const duringFlight = currentStatus==='可以起飛';
-  send({type:'pilot_ask_status',pilotName,askType:duringFlight?'duration':'airport'});
-  showToast(duringFlight?'已詢問塔台放行時長':'已詢問塔台機場狀況');
-});
-
-// 收到 / 降落完成（主控模式→回報塔台；飛聚跟隨模式→回報主控者）
+// 收到 / 降落完成（飛聚跟隨模式：回報給主控者）
 function reportAck(stage){
-  if(gatherMode) send({type:'follower_confirm',stage});
-  else send({type:'pilot_ack',ackType:stage});
+  send({type:'follower_confirm',stage});
 }
 $('btnAck').addEventListener('click',()=>{
   if(landState==='wait_ack'){
@@ -617,30 +476,12 @@ $('btnAck').addEventListener('click',()=>{
   }
 });
 
-// 回報降落（可以起飛狀態下主動回報）
-$('btnLandReport').addEventListener('click',()=>showModal('landModal'));
-$('btnLandCancel').addEventListener('click',()=>hideModal('landModal'));
-$('btnLandOk').addEventListener('click',()=>{
-  send({type:'pilot_land_report',pilotName});
-  currentStatus='降落'; landingTimeStr=''; landingReason=''; landState='none';
-  hideModal('landModal'); renderMain(); showToast('已回報降落');
-});
-
-// GPS / 結束任務
-$('btnGps').addEventListener('click',toggleGps);
-$('btnEndSession').addEventListener('click',()=>showModal('endModal'));
-$('btnEndCancel').addEventListener('click',()=>hideModal('endModal'));
-$('btnEndOk').addEventListener('click',()=>{
-  send({type:'pilot_end_session',pilotName});
-  hideModal('endModal');
-});
-
 // ── 啟動：若先前已輸入過名字，直接到模式選擇 ──────────────────────────
 if(pilotName){ showModeSelect(); }
 
 // 分頁切到背景時仍嘗試維持連線；回到前景時如果斷線就重連
 document.addEventListener('visibilitychange',()=>{
-  if(document.visibilityState==='visible' && pilotMode && !wsConnected && !wsConnecting) connect();
+  if(document.visibilityState==='visible' && masterCode && !wsConnected && !wsConnecting) connect();
 });
 </script>
 </body>

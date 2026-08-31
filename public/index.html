@@ -97,6 +97,23 @@ body{font-family:-apple-system,'Noto Sans TC',sans-serif;background:var(--bg);co
 .cmd-btn{background:var(--sf2);border:1px solid var(--bd);color:var(--tx);border-radius:var(--rs);padding:14px 3px;font-size:14px;letter-spacing:-.3px;font-weight:600;cursor:pointer;font-family:inherit;text-align:center;white-space:nowrap;}
 .cmd-btn:active{opacity:.7;}
 .cmd-btn.active{border-color:var(--ac);background:var(--sf3);color:var(--ac);}
+.cmd-btn:disabled{opacity:.28;cursor:not-allowed;}
+
+/* 多人模式：上方飛手狀態橫條 + 底部發送區 */
+#pilotsList.multi{padding-bottom:calc(56vh + 20px);}
+.pilot-strip{display:flex;align-items:center;gap:10px;padding:11px 14px;background:var(--sf);border-bottom:1px solid var(--bd);border-left:4px solid transparent;cursor:pointer;}
+.pilot-strip.sel{border-left-color:var(--ac);background:var(--sf3);}
+.pilot-strip.ack-pending{border-left-color:var(--am);}
+.strip-name{font-size:23px;font-weight:700;flex-shrink:0;min-width:66px;}
+.strip-status{flex:1;font-size:19px;color:var(--tx);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.strip-status .sub{font-size:14px;color:var(--tx2);}
+.strip-tags{display:flex;gap:4px;flex-shrink:0;align-items:center;flex-wrap:wrap;justify-content:flex-end;max-width:44%;}
+.multi-composer{position:fixed;bottom:0;left:0;right:0;background:var(--sf);border-top:2px solid var(--ac);padding:10px 12px 16px;z-index:400;display:none;flex-direction:column;gap:8px;max-height:56vh;overflow-y:auto;}
+.multi-composer.show{display:flex;}
+.mc-target{font-size:21px;font-weight:700;color:var(--ac);}
+.mc-lock{font-size:16px;color:var(--am);font-weight:700;}
+.mc-extra{display:flex;align-items:center;gap:10px 14px;flex-wrap:wrap;font-size:14px;color:var(--tx2);padding-top:2px;}
+.mc-extra input,.mc-extra select{background:var(--sf2);border:1px solid var(--bd);color:var(--tx);border-radius:6px;padding:6px 8px;font-size:14px;font-family:inherit;}
 
 /* GPS 位置按鈕 */
 .gps-btn{background:none;border:none;padding:4px;cursor:pointer;opacity:.5;flex-shrink:0;}
@@ -305,11 +322,24 @@ body{font-family:-apple-system,'Noto Sans TC',sans-serif;background:var(--bg);co
     <button id="btnMinSend" style="flex:1;background:var(--am);color:#000;border:none;border-radius:var(--rs);padding:14px 20px;font-size:26px;font-weight:700;cursor:pointer;font-family:inherit;">發送</button>
   </div>
 </div>
+
+<!-- 多人模式：底部發送區（比照單人模式，發給上方選中的飛手） -->
+<div class="multi-composer" id="multiComposer">
+  <div class="mc-target" id="mcTarget">請點選上方飛手</div>
+  <div class="mc-lock" id="mcLock" style="display:none;">🔒 降落鎖定中，只能再送「降落」或「馬上降落」</div>
+  <div class="cmd-btn-grid" id="mcBtnGrid"></div>
+  <div class="msg-row">
+    <input class="msg-inline-input" id="mcMsgInput" type="text" placeholder="輸入訊息給選中的飛手…" maxlength="50">
+    <button class="btn-msg-send" id="mcMsgSend">✈ 發送</button>
+  </div>
+  <div class="mc-extra" id="mcExtra"></div>
+</div>
 </div>
 
 
 <script>
 let ws=null, pilots=[], groups=[], flightLog=[], commLog=[];
+let selectedCid=null; // 多人模式：底部發送區目前作用的飛手
 let inputArrows=[];
 let towerName=localStorage.getItem('towerName')||'';
 let towerType=localStorage.getItem('towerType')||'南塔';
@@ -350,17 +380,22 @@ function handle(msg){
   }
   else if(msg.type==='pilots_update'){
     pilots=msg.pilots;
-    // 只更新狀態文字，不重建DOM（避免下拉選單被重置）
     const conn=pilots.filter(p=>p.towerConnected&&p.wifi!==false);
-    const curIds=Array.from(document.querySelectorAll('.pilot-card')).map(c=>c.id.replace('pc_',''));
-    const newIds=conn.map(p=>p.clientId);
-    // 若飛手列表有變化才重建，否則只更新局部
-    if(JSON.stringify(curIds)!==JSON.stringify(newIds)){
-      renderPilots();
+    if(controlMode==='multi'){
+      // 多人模式：上方橫條重畫（無輸入框，重畫便宜），底部發送區只更新不清空訊息框
+      if(selectedCid && !conn.find(p=>p.clientId===selectedCid)) selectedCid=null;
+      renderStrips(conn); syncComposer(); renderGroups();
     } else {
-      pilots.forEach(p=>updatePilotStatus(p));
+      // 只更新狀態文字，不重建DOM（避免下拉選單被重置）
+      const curIds=Array.from(document.querySelectorAll('.pilot-card')).map(c=>c.id.replace('pc_',''));
+      const newIds=conn.map(p=>p.clientId);
+      if(JSON.stringify(curIds)!==JSON.stringify(newIds)){
+        renderPilots();
+      } else {
+        pilots.forEach(p=>updatePilotStatus(p));
+      }
+      renderGroups();
     }
-    renderGroups();
   }
   else if(msg.type==='groups_update'){groups=msg.groups;renderGroups();renderPilots();}
   else if(msg.type==='session_ended'){showToast(`${msg.pilotName} 已結束作業`);}
@@ -478,8 +513,15 @@ function renderPilots(){
   const el=document.getElementById('pilotsList');
   // 只顯示已連線且不是明確離線的飛手
   const conn=pilots.filter(p=>p.towerConnected && p.wifi!==false);
+  el.classList.toggle('multi', controlMode==='multi');
   if(!conn.length){
     el.innerHTML='<div style="text-align:center;padding:50px 20px;color:var(--tx2);font-size:26px">尚無飛手連線</div>';
+    document.getElementById('multiComposer').classList.remove('show');
+    return;
+  }
+  if(controlMode==='multi'){
+    if(selectedCid && !conn.find(p=>p.clientId===selectedCid)) selectedCid=null;
+    renderStrips(conn); syncComposer();
     return;
   }
   let html=conn.map(pilotCardHTML).join('');
@@ -543,6 +585,93 @@ function renderPilots(){
       const p=pilots.find(x=>x.clientId===sel.dataset.cid);
       if(p){ p.groupId=sel.value||null; renderPilots(); }
     });
+  });
+}
+
+// ── 多人模式：上方飛手狀態橫條 + 底部發送區 ─────────────────────────
+function stripTagsHTML(p){
+  const ackInfo=ACK_MAP[p.ackStatus]||null;
+  const tpInfo=p.turnpoint?(p.turnpoint.viaNotam?`公告轉點 ${p.turnpoint.minutes}分`:`轉點 ${p.turnpoint.minutes}分`):(p.arrived?'已就位':null);
+  const grp=groups.find(g=>g.groupId===p.groupId);
+  let t='';
+  if(grp) t+=`<span class="grp-badge">${escapeHtml(grp.name)}</span>`;
+  if(p.rwy) t+=`<span class="ack-tag land">${escapeHtml(p.rwy)}</span>`;
+  if(tpInfo) t+=`<span class="ack-tag land">${tpInfo}</span>`;
+  if(ackInfo) t+=`<span class="ack-tag ${ackInfo[0]}">${ackInfo[1]}</span>`;
+  if(p.landingLocked) t+=`<span class="ack-tag land">🔒降落</span>`;
+  return t;
+}
+function renderStrips(conn){
+  const el=document.getElementById('pilotsList');
+  el.innerHTML=conn.map(p=>{
+    const sub=(p.lastCommType==='message'&&p.lastMessageTime)?` · ${escapeHtml(p.lastMessageTime)} 發送`:'';
+    return `<div class="pilot-strip ${p.clientId===selectedCid?'sel':''} ${p.ackPending?'ack-pending':''}" data-cid="${p.clientId}">
+      <span class="strip-name">${escapeHtml(p.name)}</span>
+      <span class="strip-status">${escapeHtml(pilotHeadline(p))}<span class="sub"> · ${p.battery??'—'}%${sub}</span></span>
+      <span class="strip-tags">${stripTagsHTML(p)}</span>
+    </div>`;
+  }).join('');
+  el.querySelectorAll('.pilot-strip').forEach(s=>{
+    s.addEventListener('click',()=>{ selectedCid=s.dataset.cid; renderStrips(conn); renderComposer(); });
+  });
+}
+
+let composerBound=false;
+function bindComposerOnce(){
+  if(composerBound) return; composerBound=true;
+  const mi=document.getElementById('mcMsgInput');
+  const doMsg=()=>{
+    const txt=mi.value.trim();
+    if(!selectedCid){ showToast('請先點選上方飛手'); return; }
+    if(!txt){ showToast('請輸入訊息'); return; }
+    send({type:'tower_message',clientId:selectedCid,message:txt});
+    showToast('訊息已發送'); mi.value='';
+  };
+  document.getElementById('mcMsgSend').addEventListener('click',doMsg);
+  mi.addEventListener('keydown',e=>{ if(e.key==='Enter') doMsg(); });
+}
+// 完整重畫底部發送區（切換選中飛手時用）
+function renderComposer(){
+  bindComposerOnce();
+  const mc=document.getElementById('multiComposer');
+  const p=pilots.find(x=>x.clientId===selectedCid);
+  if(!p){ mc.classList.remove('show'); return; }
+  mc.classList.add('show');
+  syncComposer();
+}
+// 只更新內容，不動訊息輸入框（pilots_update 時用）
+function syncComposer(){
+  const mc=document.getElementById('multiComposer');
+  const p=pilots.find(x=>x.clientId===selectedCid);
+  if(!p){ mc.classList.remove('show'); return; }
+  mc.classList.add('show');
+  const locked=!!p.landingLocked;
+  document.getElementById('mcTarget').textContent='發送給：'+p.name;
+  document.getElementById('mcLock').style.display=locked?'block':'none';
+  // 狀態按鈕格（比照單人模式）；降落鎖定時只留「降落」「馬上降落」
+  const grid=document.getElementById('mcBtnGrid');
+  grid.innerHTML=STATUSES.map(s=>{
+    const dis=locked && !(s==='降落'||s==='馬上降落');
+    return `<button class="cmd-btn ${p.status===s?'active':''}" data-status="${s}" ${dis?'disabled':''}>${s}</button>`;
+  }).join('');
+  grid.querySelectorAll('.cmd-btn').forEach(b=>{
+    b.addEventListener('click',()=>{ if(!b.disabled) handleStatusAction(selectedCid,b.dataset.status); });
+  });
+  const mi=document.getElementById('mcMsgInput');
+  mi.disabled=locked; mi.placeholder=locked?'降落鎖定中，無法發送訊息':'輸入訊息給選中的飛手…';
+  document.getElementById('mcMsgSend').disabled=locked;
+  // 公告 / 跑道 / 分類
+  const ex=document.getElementById('mcExtra');
+  ex.innerHTML=`<span>飛航公告 <b style="color:${p.notam?'var(--am)':'var(--tx2)'}">${escapeHtml(p.notam||'未設定')}</b></span>`
+    +`<span>跑道 RWY <input id="mcRwy" inputmode="numeric" maxlength="2" value="${escapeHtml((p.rwy||'').replace('RWY',''))}" style="width:46px;letter-spacing:2px"></span>`
+    +`<span>分類 <select id="mcGrp"><option value="">未分類</option>${groups.map(g=>`<option value="${g.groupId}" ${p.groupId===g.groupId?'selected':''}>${escapeHtml(g.name)}</option>`).join('')}</select></span>`;
+  ex.querySelector('#mcRwy').addEventListener('input',e=>{
+    e.target.value=e.target.value.replace(/[^0-9]/g,'');
+    if(e.target.value.length===2){ send({type:'tower_rwy',clientId:selectedCid,rwy:'RWY'+e.target.value}); showToast('✈ 跑道改 RWY'+e.target.value); }
+  });
+  ex.querySelector('#mcGrp').addEventListener('change',e=>{
+    send({type:'tower_assign_group',clientId:selectedCid,groupId:e.target.value||null});
+    const pp=pilots.find(x=>x.clientId===selectedCid); if(pp){ pp.groupId=e.target.value||null; renderPilots(); }
   });
 }
 
@@ -626,6 +755,12 @@ function markSelected(cid,status){
   document.querySelectorAll('#pc_'+cid+' .cmd-btn').forEach(b=>{
     b.classList.toggle('active',b.dataset.status===status);
   });
+  // 多人模式：底部發送區按鈕高亮
+  if(controlMode==='multi' && cid===selectedCid){
+    document.querySelectorAll('#mcBtnGrid .cmd-btn').forEach(b=>{
+      b.classList.toggle('active',b.dataset.status===status);
+    });
+  }
 }
 
 // 統一處理指令動作（下拉選單「發送」與單人模式按鈕共用）
@@ -901,6 +1036,7 @@ function selectControlMode(mode, save=true){
   const mBtn=document.getElementById('btnModeMulti');
   if(sBtn) sBtn.classList.toggle('selected',mode==='single');
   if(mBtn) mBtn.classList.toggle('selected',mode==='multi');
+  if(mode!=='multi'){ const mc=document.getElementById('multiComposer'); if(mc) mc.classList.remove('show'); }
 }
 function updateNameBtn(){
   document.getElementById('btnMyName').textContent=(towerName||'設定名稱')+' · '+(towerType||'南塔');

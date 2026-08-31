@@ -23,7 +23,7 @@
 #define GPS_RX_PIN    32   // Core2 PORT.A（外接I2C腳位，這裡改當UART用；訊號1=RXD）
 #define GPS_TX_PIN    33   // Core2 PORT.A（訊號2=TXD）
 #define GPS_BAUD      115200
-#define FW_VERSION    15
+#define FW_VERSION    16
 #define UPDATE_CHECK_URL "https://droneatis-production.up.railway.app/firmware/version.json"
 
 // ── NVS 儲存 ─────────────────────────────────────────────────────────────────
@@ -75,6 +75,7 @@ unsigned long lastTimeUpd   = 0;
 unsigned long lastBuzzAt    = 0;
 int buzzPhase = 0;
 unsigned long rwyNoticeUntil = 0;
+unsigned long followerConfirmUntil = 0;  // 主控收到飛聚跟隨回報訊息，顯示到這個時間就清掉
 unsigned long lastActivity = 0;
 bool screenDimmed = false;
 const unsigned long IDLE_DIM_MS = 120000;
@@ -844,6 +845,7 @@ void webSocketEvent(WStype_t wsType, uint8_t* payload, size_t length){
         if(currentScreen==SCR_IDLE){
           M5.Display.fillRect(20,200,280,26,CLR_SURFACE); fXs(); M5.Display.setTextDatum(middle_center);
           M5.Display.setTextColor(CLR_ACCENT); M5.Display.drawString(fname+stTxt,160,213);
+          followerConfirmUntil=millis()+10000; // 顯示10秒後自動清掉
         }
         buzz(1000,80);
       }
@@ -922,6 +924,12 @@ void drawIdle(){
   fSm(); M5.Display.setTextDatum(middle_left);
   M5.Display.setTextColor(ok?CLR_GREEN:CLR_RED);
   M5.Display.drawString(ok?("● "+towerType+" "+towerName):"● 無連線",8,46);
+
+  // 主控模式：待命畫面持續顯示自己的序號，方便報給塔台
+  if(pilotMode==MODE_MASTER && roomCode.length()>0){
+    fXs(); M5.Display.setTextDatum(middle_right); M5.Display.setTextColor(CLR_ACCENT);
+    M5.Display.drawString("序號 "+roomCode,228,46);
+  }
 
   if(pilotMode==MODE_MASTER) drawGpsBtn();
 
@@ -1566,6 +1574,8 @@ void loop(){
   handleBuzzer(now);
   // 跑道通知5秒後清除
   if(rwyNoticeUntil>0&&now>rwyNoticeUntil&&currentScreen==SCR_IDLE){ rwyNoticeUntil=0; drawIdle(); }
+  // 飛聚跟隨回報訊息顯示10秒後清除
+  if(followerConfirmUntil>0&&now>followerConfirmUntil){ followerConfirmUntil=0; if(currentScreen==SCR_IDLE) drawIdle(); }
   // 閒置自動調暗
   if((currentScreen==SCR_IDLE||currentScreen==SCR_COMMAND)&&!screenDimmed&&now-lastActivity>IDLE_DIM_MS){ M5.Display.setBrightness(30); screenDimmed=true; }
   if(keypadMode==KP_NOTAM){ if(M5.Touch.getCount()){auto t=M5.Touch.getDetail(0);if(t.wasPressed())handleKeypadTouch2(t.x,t.y);} }
