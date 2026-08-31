@@ -412,6 +412,12 @@ function pilotHeadline(p){
   return p.status||'開機預備';
 }
 
+function pilotsTabActive(){ return document.getElementById('page-pilots').classList.contains('active'); }
+// 沒選飛手時預設選第一位，讓底部發送區一直是開著的
+function ensureSelection(conn){
+  if(selectedCid && conn.find(p=>p.clientId===selectedCid)) return;
+  selectedCid = conn.length ? conn[0].clientId : null;
+}
 function renderPilots(){
   const el=document.getElementById('pilotsList');
   el.classList.add('multi');
@@ -422,7 +428,7 @@ function renderPilots(){
     document.getElementById('multiComposer').classList.remove('show');
     return;
   }
-  if(selectedCid && !conn.find(p=>p.clientId===selectedCid)) selectedCid=null;
+  ensureSelection(conn);
   renderStrips(conn); syncComposer();
 }
 
@@ -523,17 +529,13 @@ function bindComposerOnce(){
 // 完整重畫底部發送區（切換選中飛手時用）
 function renderComposer(){
   bindComposerOnce();
-  const mc=document.getElementById('multiComposer');
-  const p=pilots.find(x=>x.clientId===selectedCid);
-  if(!p){ mc.classList.remove('show'); return; }
-  mc.classList.add('show');
   syncComposer();
 }
 // 只更新內容，不動訊息輸入框（pilots_update 時用）
 function syncComposer(){
   const mc=document.getElementById('multiComposer');
   const p=pilots.find(x=>x.clientId===selectedCid);
-  if(!p){ mc.classList.remove('show'); return; }
+  if(!p || !pilotsTabActive()){ mc.classList.remove('show'); return; }
   mc.classList.add('show');
   const locked=!!p.landingLocked;
   document.getElementById('mcTarget').textContent='發送給：'+p.name;
@@ -808,7 +810,8 @@ document.querySelectorAll('.tab').forEach(tab=>{
     document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
     tab.classList.add('active');
     document.getElementById('page-'+tab.dataset.page).classList.add('active');
-    if(tab.dataset.page==='log') renderLog();
+    if(tab.dataset.page==='log'){ renderLog(); document.getElementById('multiComposer').classList.remove('show'); }
+    else syncComposer(); // 回飛手列表：重新開啟底部發送區
   });
 });
 

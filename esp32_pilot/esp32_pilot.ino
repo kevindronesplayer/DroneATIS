@@ -23,7 +23,7 @@
 #define GPS_RX_PIN    32   // Core2 PORT.A（外接I2C腳位，這裡改當UART用；訊號1=RXD）
 #define GPS_TX_PIN    33   // Core2 PORT.A（訊號2=TXD）
 #define GPS_BAUD      115200
-#define FW_VERSION    18
+#define FW_VERSION    19
 #define UPDATE_CHECK_URL "https://droneatis-production.up.railway.app/firmware/version.json"
 
 // ── NVS 儲存 ─────────────────────────────────────────────────────────────────
@@ -932,12 +932,6 @@ void drawIdle(){
   M5.Display.setTextColor(ok?CLR_GREEN:CLR_RED);
   M5.Display.drawString(ok?("● "+towerType+" "+towerName):"● 無連線",8,46);
 
-  // 塔台上次來訊時間（跟 line 一樣）— 主控右側有 GPS 鈕，往左讓一點
-  if(everReceivedCommand && lastMessageTime.length()>0){
-    fXs(); M5.Display.setTextDatum(middle_right); M5.Display.setTextColor(CLR_GRAY);
-    M5.Display.drawString("塔台 "+lastMessageTime,pilotMode==MODE_MASTER?226:314,46);
-  }
-
   if(pilotMode==MODE_MASTER) drawGpsBtn();
 
   // 公告框（觸控 y:58~78）
@@ -963,7 +957,13 @@ void drawIdle(){
   bool hasReason=(currentStatus=="降落"&&landingTimeStr.length()>0&&landingReason.length()>0);
   M5.Display.setTextDatum(middle_center);
 
-  // 手動訊息跟選單狀態不同時顯示，看哪個是最新收到的（時間已顯示在右上）
+  // 塔台來訊時間放在內容上方（跟 line 一樣）
+  if(everReceivedCommand && lastMessageTime.length()>0){
+    fXs(); M5.Display.setTextColor(CLR_GRAY);
+    M5.Display.drawString("塔台 "+lastMessageTime+" 來訊",160,118);
+  }
+
+  // 手動訊息跟選單狀態不同時顯示，看哪個是最新收到的
   if(showingMessage&&lastMessage.length()>0){
     drawFitText(lastMessage,160,152,CLR_WHITE);
   } else if(!everReceivedCommand){
@@ -1034,9 +1034,13 @@ void drawCommand(){
   M5.Display.fillRect(0,32,320,26,bar);
   fXs(); M5.Display.setTextDatum(middle_center); M5.Display.setTextColor(CLR_BG);
   M5.Display.drawString("塔台指令",160,45);
-  if(lastMessageTime.length()>0){ M5.Display.setTextDatum(middle_right); M5.Display.drawString(lastMessageTime,314,45); }
   uint16_t sc=(currentStatus=="可以起飛")?CLR_GREEN:(currentStatus=="降落")?CLR_AMBER:CLR_WHITE;
   bool hasReason=(currentStatus=="降落"&&landingTimeStr.length()>0&&landingReason.length()>0);
+  // 塔台來訊時間放在內容上方（跟 line 一樣）；降落畫面資訊較密，這行略過（待命畫面仍會顯示）
+  if(lastMessageTime.length()>0 && !(currentStatus=="降落"&&landingTimeStr.length()>0)){
+    fXs(); M5.Display.setTextDatum(middle_center); M5.Display.setTextColor(CLR_GRAY);
+    M5.Display.drawString("塔台 "+lastMessageTime+" 來訊",160,71);
+  }
   if(currentStatus=="降落"&&landingTimeStr.length()>0){
     M5.Display.setTextColor(sc); M5.Display.setTextDatum(middle_center);
     if(hasReason){ fSm(); M5.Display.drawString(currentStatus,80,90); }
@@ -1060,11 +1064,12 @@ void drawMessage(){
   M5.Display.fillRect(0,32,320,26,CLR_ACCENT);
   fXs(); M5.Display.setTextDatum(middle_center); M5.Display.setTextColor(CLR_BG);
   M5.Display.drawString("塔台訊息",160,45);
-  drawFitText(lastMessage,160,116,CLR_WHITE);
+  // 發送時間放在訊息內容上方（跟 line 一樣）
   if(lastMessageTime.length()>0){
     fXs(); M5.Display.setTextDatum(middle_center); M5.Display.setTextColor(CLR_GRAY);
-    M5.Display.drawString("塔台 "+lastMessageTime+" 發送",160,144);
+    M5.Display.drawString("塔台 "+lastMessageTime+" 發送",160,74);
   }
+  drawFitText(lastMessage,160,124,CLR_WHITE);
   if(NEEDS_ACK) drawAckButton();
   else drawFollowerViewHint();
 }
