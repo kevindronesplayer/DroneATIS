@@ -1,5 +1,5 @@
 {
-  "version": 20,
-  "notes": "降落倒數基準修正：輸入 HHMM 代表要在 HH:MM 前降完（如 2300 → 22:59:59）；馬上降落抓下下一分鐘",
+  "version": 21,
+  "notes": "降落流程中螢幕不休眠；回報降落後只留「降落＋時間」一行；更新畫面說明字自動換行不爆框",
   "url": "https://droneatis-production.up.railway.app/firmware/esp32_pilot.bin"
 }

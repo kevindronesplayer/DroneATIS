@@ -135,6 +135,30 @@ function toPilot(clientId,data){
   });
 }
 
+// ── 監看模式：把主控的跟隨者清單/回報狀態推給監看端 ──────────────
+function toMonitors(masterClientId,data){
+  wss.clients.forEach(ws=>{
+    const c=connections.get(ws);
+    if(c&&c.role==='monitor'&&c.masterClientId===masterClientId&&ws.readyState===1) ws.send(JSON.stringify(data));
+  });
+}
+function monitorUpdate(masterClientId){
+  const mp=pilots.get(masterClientId); if(!mp) return;
+  toMonitors(masterClientId,{
+    type:'monitor_followers',
+    masterName:mp.name, masterStatus:mp.status||'開機預備',
+    landingTime:mp.landingTime||'', lastMessage:mp.lastMessage||'',
+    lastCommType:mp.lastCommType||'status', hasCommand:!!mp.hasCommand,
+    followers:(mp.followers||[]).map(f=>({name:f.name,gather:!!f.gather,stage:f.stage||'',pending:!!f.pending}))
+  });
+}
+// 主控收到新指令/訊息時，把飛聚跟隨者標記為「待回應」
+function markGatherPending(masterClientId){
+  const mp=pilots.get(masterClientId); if(!mp||!mp.followers) return;
+  mp.followers.forEach(f=>{ if(f.gather){ f.pending=true; f.stage=''; } });
+  monitorUpdate(masterClientId);
+}
+
 function pilotSnap(){ return Array.from(pilots.values()).map(p=>({...p})); }
 function groupSnap(){ return Array.from(groups.entries()).map(([id,g])=>({groupId:id,name:g.name,memberIds:g.memberIds})); }
 function groupName(gid){ const g=groups.get(gid); return g?g.name:''; }
@@ -180,6 +204,7 @@ function updateGroupStatus(groupId,status,landingTime,immediate){
     applyStatus(p,status,landingTime);
     toPilot(cid,{type:'command',status,landingTime:landingTime||null,immediate:!!immediate,groupName:groupName(groupId),time:p.lastMessageTime});
     toFollowers(cid,{type:'follower_sync',status,landingTime:landingTime||null,immediate:!!immediate,groupName:groupName(groupId),time:p.lastMessageTime});
+    markGatherPending(cid);
   });
   toTower({type:'pilots_update',pilots:pilotSnap()});
 }
@@ -236,6 +261,7 @@ wss.on('connection',ws=>{
           applyStatus(pilot,status,landingTime);
           toPilot(clientId,{type:'command',status,landingTime:landingTime||null,immediate:!!immediate,groupName:'',time:pilot.lastMessageTime});
           toFollowers(clientId,{type:'follower_sync',status,landingTime:landingTime||null,immediate:!!immediate,groupName:'',time:pilot.lastMessageTime});
+          markGatherPending(clientId);
           toTower({type:'pilots_update',pilots:pilotSnap()});
         }
         break;
@@ -269,6 +295,7 @@ wss.on('connection',ws=>{
         pushComm(pilot.name,'tower',msg.message);
         toPilot(msg.clientId,{type:'message',message:msg.message,time:msgTime});
         toFollowers(msg.clientId,{type:'message',message:msg.message,time:msgTime});
+        markGatherPending(msg.clientId);
         toTower({type:'pilots_update',pilots:pilotSnap()});
         break;
       }
@@ -324,13 +351,21 @@ wss.on('connection',ws=>{
           ws.send(JSON.stringify({type:'follower_error',message:'序號無效或已過期'}));
           return;
         }
+        if(!masterPilot.followers) masterPilot.followers=[];
+        // 監看模式：只看主控的跟隨者狀態，不加入 followers 清單
+        if(msg.monitor){
+          conn.role='monitor'; conn.clientId='m_'+generateClientId(); conn.masterClientId=masterPilot.clientId; conn.followerName=name;
+          ws.send(JSON.stringify({type:'monitor_registered', masterName:masterPilot.name, towerName:getTowerName(), towerType:getTowerType()}));
+          monitorUpdate(masterPilot.clientId);
+          break;
+        }
         const fid = 'f_'+generateClientId();
         conn.role='follower'; conn.clientId=fid; conn.masterClientId=masterPilot.clientId; conn.followerName=name;
         conn.gather=!!msg.gather; // 飛聚跟隨模式：需強制回報給主控者
         // 加入主控的 followers 清單；同名跟隨者重連（掉線重連/換分頁）要換掉舊的，不要一直疊加重複項目
-        if(!masterPilot.followers) masterPilot.followers=[];
         masterPilot.followers=masterPilot.followers.filter(f=>f.name!==name);
-        masterPilot.followers.push({clientId:fid, name, gather:!!msg.gather});
+        masterPilot.followers.push({clientId:fid, name, gather:!!msg.gather, stage:'', pending:false});
+        monitorUpdate(masterPilot.clientId);
         // 送出已連線
         ws.send(JSON.stringify({
           type:'follower_registered',
@@ -368,6 +403,7 @@ wss.on('connection',ws=>{
             if(f) f.name=msg.name;
           }
         });
+        if(conn.masterClientId) monitorUpdate(conn.masterClientId);
         toTower({type:'pilots_update',pilots:pilotSnap()});
         break;
       }
@@ -509,7 +545,15 @@ wss.on('connection',ws=>{
       case 'follower_confirm':{
         // 飛聚跟隨模式：強制回報，回報給主控飛手本人（不是塔台）
         if(!conn.masterClientId) return;
-        toPilot(conn.masterClientId, {type:'follower_confirm', followerName: conn.followerName||'', stage: msg.stage||''});
+        const stg=msg.stage||'ack';
+        toPilot(conn.masterClientId, {type:'follower_confirm', followerName: conn.followerName||'', stage: stg});
+        // 更新該跟隨者在 followers 清單裡的回報狀態，推給監看端
+        const mp=pilots.get(conn.masterClientId);
+        if(mp&&mp.followers){
+          const f=mp.followers.find(x=>x.clientId===conn.clientId);
+          if(f){ f.stage=stg; f.pending=false; }
+        }
+        monitorUpdate(conn.masterClientId);
         break;
       }
 
@@ -568,6 +612,7 @@ wss.on('connection',ws=>{
         pilots.forEach(mp=>{
           if(mp.followers) mp.followers=mp.followers.filter(f=>f.clientId!==conn.clientId);
         });
+        if(conn.masterClientId) monitorUpdate(conn.masterClientId);
         toTower({type:'pilots_update',pilots:pilotSnap()});
       }
     }

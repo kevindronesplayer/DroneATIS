@@ -23,7 +23,7 @@
 #define GPS_RX_PIN    32   // Core2 PORT.A（外接I2C腳位，這裡改當UART用；訊號1=RXD）
 #define GPS_TX_PIN    33   // Core2 PORT.A（訊號2=TXD）
 #define GPS_BAUD      115200
-#define FW_VERSION    20
+#define FW_VERSION    21
 #define UPDATE_CHECK_URL "https://droneatis-production.up.railway.app/firmware/version.json"
 
 // ── NVS 儲存 ─────────────────────────────────────────────────────────────────
@@ -476,17 +476,36 @@ void connectWiFiSaved(){
 }
 
 // ── 韌體更新 ──────────────────────────────────────────────────────────────────
+// 更新說明字太長會爆框：用縮小字自動換行，最多3行，超過截斷加「…」
+void drawNotesWrapped(String txt,int cx,int topY,int lineH,int maxLines,int cpl){
+  M5.Display.setFont(&fonts::efontTW_24); M5.Display.setTextSize(0.58);
+  M5.Display.setTextDatum(middle_center); M5.Display.setTextColor(CLR_GRAY);
+  int i=0,y=topY,line=0;
+  while(i<(int)txt.length() && line<maxLines){
+    int j=i,cnt=0;
+    while(j<(int)txt.length() && cnt<cpl){
+      unsigned char c=txt[j];
+      j += (c<0x80)?1:(c<0xE0)?2:(c<0xF0)?3:4;
+      cnt++;
+    }
+    String seg=txt.substring(i,j);
+    if(line==maxLines-1 && j<(int)txt.length()) seg+="…";
+    M5.Display.drawString(seg,cx,y);
+    i=j; y+=lineH; line++;
+  }
+}
 void drawUpdateConfirm(){
   currentScreen=SCR_UPDATE_CONFIRM;
   M5.Display.fillScreen(CLR_BG); M5.Display.setTextDatum(middle_center);
-  fLg(); M5.Display.setTextColor(CLR_ACCENT); M5.Display.drawString("發現新版本",160,74);
-  fSm(); M5.Display.setTextColor(CLR_WHITE); M5.Display.drawString("v"+String(pendingFwVersion),160,104);
-  if(pendingFwNotes.length()>0){ fXs(); M5.Display.setTextColor(CLR_GRAY); M5.Display.drawString(pendingFwNotes,160,128); }
-  fXs(); M5.Display.setTextColor(CLR_GRAY); M5.Display.drawString("是否現在更新？",160,154);
-  M5.Display.fillRoundRect(20,180,130,50,10,CLR_SURFACE); M5.Display.drawRoundRect(20,180,130,50,10,CLR_GRAY);
-  fSm(); M5.Display.setTextColor(CLR_WHITE); M5.Display.drawString("取消",85,205);
-  M5.Display.fillRoundRect(170,180,130,50,10,CLR_ACCENT);
-  M5.Display.setTextColor(CLR_BG); M5.Display.drawString("更新",235,205);
+  fLg(); M5.Display.setTextColor(CLR_ACCENT); M5.Display.drawString("發現新版本",160,58);
+  fSm(); M5.Display.setTextColor(CLR_WHITE); M5.Display.drawString("v"+String(pendingFwVersion),160,86);
+  if(pendingFwNotes.length()>0) drawNotesWrapped(pendingFwNotes,160,110,17,3,20);
+  fXs(); M5.Display.setTextDatum(middle_center); M5.Display.setTextColor(CLR_GRAY);
+  M5.Display.drawString("是否現在更新？",160,168);
+  M5.Display.fillRoundRect(20,186,130,46,10,CLR_SURFACE); M5.Display.drawRoundRect(20,186,130,46,10,CLR_GRAY);
+  fSm(); M5.Display.setTextColor(CLR_WHITE); M5.Display.drawString("取消",85,209);
+  M5.Display.fillRoundRect(170,186,130,46,10,CLR_ACCENT);
+  M5.Display.setTextColor(CLR_BG); M5.Display.drawString("更新",235,209);
 }
 
 void doFirmwareUpdate(){
@@ -970,17 +989,16 @@ void drawIdle(){
   } else if(!everReceivedCommand){
     fSm(); M5.Display.setTextColor(CLR_GRAY); M5.Display.drawString("等待塔台來訊",160,150);
   } else if(hasReason){
+    // 只留「降落＋時間」，不再另外顯示一行「降落」
     M5.Display.setTextColor(sc);
-    fSm(); M5.Display.drawString(currentStatus,160,140);
-    M5.Display.drawString("降落 "+getLandTimeDisplay(),160,168);
-    fXs(); M5.Display.setTextColor(CLR_WHITE); M5.Display.drawString(landingReason,160,190);
+    fSm(); M5.Display.drawString("降落 "+getLandTimeDisplay(),160,150);
+    fXs(); M5.Display.setTextColor(CLR_WHITE); M5.Display.drawString(landingReason,160,178);
+  } else if(currentStatus=="降落"&&landingTimeStr.length()>0){
+    M5.Display.setTextColor(sc);
+    fSm(); M5.Display.drawString("降落 "+getLandTimeDisplay(),160,155);
   } else {
     M5.Display.setTextColor(sc);
     fLg(); M5.Display.drawString(currentStatus,160,150);
-    if(currentStatus=="降落"&&landingTimeStr.length()>0){
-      fSm(); M5.Display.setTextColor(CLR_AMBER);
-      M5.Display.drawString("降落 "+getLandTimeDisplay(),160,178);
-    }
   }
   // 飛行中的降落回報按鈕：不管上面顯示的是狀態還是訊息，都要能點得到
   if(currentStatus=="可以起飛"&&pilotMode==MODE_MASTER){
@@ -1591,8 +1609,9 @@ void loop(){
   if(rwyNoticeUntil>0&&now>rwyNoticeUntil&&currentScreen==SCR_IDLE){ rwyNoticeUntil=0; drawIdle(); }
   // 飛聚跟隨回報訊息顯示10秒後清除
   if(followerConfirmUntil>0&&now>followerConfirmUntil){ followerConfirmUntil=0; if(currentScreen==SCR_IDLE) drawIdle(); }
-  // 閒置自動調暗
-  if((currentScreen==SCR_IDLE||currentScreen==SCR_COMMAND)&&!screenDimmed&&now-lastActivity>IDLE_DIM_MS){ M5.Display.setBrightness(30); screenDimmed=true; }
+  // 閒置自動調暗（降落流程中不休眠，讓飛手隨時看得到倒數）
+  bool inLanding = (landState==LAND_WAIT_ACK||landState==LAND_COUNTDOWN) || (currentStatus=="降落"&&landingTimeStr.length()>0);
+  if((currentScreen==SCR_IDLE||currentScreen==SCR_COMMAND)&&!screenDimmed&&!inLanding&&now-lastActivity>IDLE_DIM_MS){ M5.Display.setBrightness(30); screenDimmed=true; }
   if(keypadMode==KP_NOTAM){ if(M5.Touch.getCount()){auto t=M5.Touch.getDetail(0);if(t.wasPressed())handleKeypadTouch2(t.x,t.y);} }
   else if(keypadMode==KP_TURNPOINT){ if(M5.Touch.getCount()){auto t=M5.Touch.getDetail(0);if(t.wasPressed())handleMinuteKeypadTouch(t.x,t.y);} }
   else if(currentScreen==SCR_NAME_INPUT||currentScreen==SCR_WIFI_PASS||currentScreen==SCR_FOLLOWER_CODE){ if(M5.Touch.getCount()){auto t=M5.Touch.getDetail(0);if(t.wasPressed())handleKeyboardTouch(t.x,t.y);} }

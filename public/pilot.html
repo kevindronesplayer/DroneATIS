@@ -60,6 +60,19 @@ input[type=text]:focus,input[type=number]:focus{border-color:var(--ac);}
 .land-btn{background:var(--am);color:#000;font-weight:700;padding:18px;border-radius:var(--r);border:none;font-size:18px;width:100%;cursor:pointer;}
 .readonly-banner{text-align:center;color:var(--ac);font-size:14px;padding:10px;background:var(--sf);border-radius:var(--rs);border:1px solid var(--bd);}
 
+/* 監看：跟隨者狀態列 */
+.mon-row{display:flex;align-items:center;gap:10px;background:var(--sf);border:1px solid var(--bd);border-radius:var(--rs);padding:12px 14px;margin-bottom:8px;}
+.mon-name{font-size:19px;font-weight:700;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.mon-badge{font-size:12px;font-weight:700;border-radius:99px;padding:3px 8px;flex-shrink:0;}
+.mon-badge.g{background:rgba(255,167,38,.18);color:var(--am);}
+.mon-badge.v{background:var(--sf3);color:var(--tx2);}
+.mon-stat{font-size:14px;font-weight:700;border-radius:99px;padding:3px 10px;flex-shrink:0;}
+.mon-stat.wait{background:var(--am);color:#000;}
+.mon-stat.done{background:var(--gr);color:#000;}
+.mon-stat.land{background:#3d2a1a;color:var(--am);border:1px solid var(--am);}
+.mon-stat.idle{background:var(--sf3);color:var(--tx2);}
+.mon-empty{color:var(--tx2);text-align:center;padding:30px 10px;font-size:16px;}
+
 .footer-actions{display:flex;gap:8px;padding:10px 14px 16px;flex-shrink:0;}
 .footer-actions .btn{max-width:none;font-size:14px;padding:10px 6px;}
 
@@ -96,7 +109,27 @@ input[type=text]:focus,input[type=number]:focus{border-color:var(--ac);}
     <div class="t" style="color:var(--am)">飛聚跟隨模式</div>
     <div class="d">跟隨主控，需回報（回報給主控者，不是塔台）</div>
   </div>
+  <div class="mode-btn" id="btnModeMonitor" style="border-color:var(--tx2)">
+    <div class="t" style="color:var(--tx)">看跟隨者狀態</div>
+    <div class="d">看主控的跟隨者有誰、飛聚跟隨者的回報狀態</div>
+  </div>
   <button class="btn outline" id="btnModeBack">‹ 更改名字</button>
+</div>
+
+<!-- 監看：跟隨者狀態 -->
+<div class="page" id="scrMonitor">
+  <div class="topbar">
+    <div class="dot" id="monDot"></div>
+    <div class="name" id="monName"></div>
+    <div class="iconbtn" id="monMore">更多</div>
+  </div>
+  <div class="body">
+    <div class="status-card" style="padding:16px">
+      <div style="font-size:14px;color:var(--tx2)">主控目前狀態</div>
+      <div class="headline" id="monMasterStatus" style="font-size:24px;margin-top:4px">—</div>
+    </div>
+    <div id="monList"></div>
+  </div>
 </div>
 
 <!-- 輸入主控序號 -->
@@ -130,7 +163,7 @@ input[type=text]:focus,input[type=number]:focus{border-color:var(--ac);}
       <span class="val" id="notamVal">未設定</span>
     </div>
     <div class="status-card">
-      <div class="land-count" id="msgTimeText" style="display:none;margin:0 0 6px;"></div>
+      <div class="land-count" id="msgTimeText" style="display:none;margin:-14px 0 14px;line-height:1;"></div>
       <div class="headline" id="headlineText" style="font-size:26px;">等待塔台來訊</div>
       <div class="land-time" id="landTimeText" style="display:none;"></div>
       <div class="land-count" id="landCountText" style="display:none;"></div>
@@ -169,8 +202,9 @@ input[type=text]:focus,input[type=number]:focus{border-color:var(--ac);}
 // ── 狀態 ──────────────────────────────────────────────────────────────
 // 網頁版只有兩種跟隨角色，沒有主控模式
 let ws=null, wsConnecting=false, wsConnected=false;
-let followerKind='view';   // 'view'=跟隨模式(僅顯示) / 'gather'=飛聚跟隨模式(強制回報主控)
-let gatherMode=false;      // followerKind==='gather' 的快取
+let followerKind='view';   // 'view'=跟隨 / 'gather'=飛聚跟隨 / 'monitor'=看跟隨者狀態
+let gatherMode=false;      // followerKind==='gather'
+let monitorMode=false;     // followerKind==='monitor'
 let connected=false;       // 是否已進入主畫面（取代舊的 pilotMode 判斷）
 let lastNagAt=0;
 let pilotName=localStorage.getItem('pilotName')||'';
@@ -199,7 +233,7 @@ function connect(){
   ws=new WebSocket(`${wsProtocol}//${location.host}`);
   ws.onopen=()=>{
     wsConnecting=false; wsConnected=true; updateConnDot();
-    send({type:'follower_register',name:pilotName,masterCode,gather:gatherMode});
+    send({type:'follower_register',name:pilotName,masterCode,gather:gatherMode,monitor:monitorMode});
   };
   ws.onclose=()=>{ wsConnecting=false; wsConnected=false; updateConnDot(); scheduleReconnect(); };
   ws.onerror=()=>{ try{ws.close();}catch(e){} };
@@ -211,6 +245,7 @@ function scheduleReconnect(){
 }
 function updateConnDot(){
   $('connDot').classList.toggle('on', wsConnected);
+  $('monDot').classList.toggle('on', wsConnected);
 }
 function getBattery(){
   return 100; // 網頁版無法讀取硬體電量，固定回報100
@@ -219,6 +254,15 @@ function getBattery(){
 // ── 訊息處理 ─────────────────────────────────────────────────────────
 function handle(msg){
   switch(msg.type){
+    case 'monitor_registered':
+      towerConnected=true; towerName=msg.towerName||'塔台'; towerTypeStr=msg.towerType||'南塔';
+      $('monName').textContent=(msg.masterName||'主控')+' 的跟隨者';
+      showPage('scrMonitor'); updateConnDot();
+      startHeartbeat();
+      break;
+    case 'monitor_followers':
+      renderMonitor(msg);
+      break;
     case 'follower_registered':
       clientId=msg.clientId; towerConnected=true;
       groupName=msg.groupName||''; towerName=msg.towerName||'塔台'; towerTypeStr=msg.towerType||'南塔';
@@ -292,6 +336,21 @@ function handle(msg){
 }
 
 function nowClock(){ const d=new Date(); return String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0'); }
+
+// 降落流程中不讓螢幕休眠
+let _wakeLock=null;
+async function updateWakeLock(){
+  const want = currentStatus==='降落' && !!landingTimeStr && !showingMessage;
+  try{
+    if(want && !_wakeLock && ('wakeLock' in navigator)){
+      _wakeLock=await navigator.wakeLock.request('screen');
+      _wakeLock.addEventListener('release',()=>{ _wakeLock=null; });
+    } else if(!want && _wakeLock){
+      const w=_wakeLock; _wakeLock=null; w.release();
+    }
+  }catch(e){ _wakeLock=null; }
+}
+document.addEventListener('visibilitychange',()=>{ if(document.visibilityState==='visible') updateWakeLock(); });
 function applyLandingTime(raw){
   landingReason='';
   if(!raw){ landingTimeStr=''; return; }
@@ -353,20 +412,22 @@ function renderMain(){
     headline.style.color='var(--tx)';
   } else if(!everReceivedCommand){
     headline.textContent='等待塔台來訊'; headline.style.fontSize='20px'; headline.style.color='var(--tx2)';
+  } else if(currentStatus==='降落' && landingTimeStr){
+    // 只留「降落 + 時間」一行，不再另外顯示一行「降落」
+    headline.textContent='降落 '+getLandTimeDisplay();
+    headline.style.fontSize='26px'; headline.style.color='var(--am)';
+    landCountEl.style.display='block';
+    if(landingReason){ landReasonEl.style.display='block'; landReasonEl.textContent=landingReason; }
   } else {
     headline.textContent=currentStatus;
     headline.style.fontSize = currentStatus.length>12 ? '20px' : '28px';
-    headline.style.color = currentStatus==='可以起飛' ? 'var(--gr)' : (currentStatus==='降落' ? 'var(--am)' : 'var(--tx)');
-    if(currentStatus==='降落' && landingTimeStr){
-      landTimeEl.style.display='block'; landTimeEl.textContent='降落 '+getLandTimeDisplay();
-      landCountEl.style.display='block';
-      if(landingReason){ landReasonEl.style.display='block'; landReasonEl.textContent=landingReason; }
-    }
+    headline.style.color = currentStatus==='可以起飛' ? 'var(--gr)' : 'var(--tx)';
   }
   // 塔台每次來訊（指令或訊息）都顯示發送時間，跟 line 一樣
   if(everReceivedCommand && lastMessageTime){
     msgTimeEl.style.display='block'; msgTimeEl.textContent='塔台 '+lastMessageTime+' 發送';
   }
+  updateWakeLock();
 
   // 只有飛聚跟隨模式要回報
   $('pendingTag').style.display = (gatherMode&&ackPending) ? 'inline-block' : 'none';
@@ -388,6 +449,30 @@ function renderCountdown(){
 }
 
 function escapeHtml(s){ return String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+
+// ── 監看：主控的跟隨者狀態 ──────────────────────────────────────────
+function renderMonitor(msg){
+  const ms=(msg.lastCommType==='message'&&msg.lastMessage)?('訊息：'+msg.lastMessage)
+    :(msg.hasCommand?(msg.masterStatus||'開機預備'):'等待塔台來訊');
+  $('monMasterStatus').textContent=ms + (msg.landingTime?(' '+String(msg.landingTime).slice(0,4).replace(/(\d\d)(\d\d)/,'$1:$2')):'');
+  const fs=msg.followers||[];
+  const el=$('monList');
+  if(!fs.length){ el.innerHTML='<div class="mon-empty">目前沒有人跟隨這位主控</div>'; return; }
+  el.innerHTML=fs.map(f=>{
+    let cls='idle', txt='—';
+    if(!f.gather){ cls='idle'; txt='僅顯示'; }
+    else if(f.pending){ cls='wait'; txt='待回應'; }
+    else if(f.stage==='landing_ack'){ cls='land'; txt='收到降落指令'; }
+    else if(f.stage==='landing_done'){ cls='done'; txt='已降落'; }
+    else if(f.stage==='takeoff'){ cls='done'; txt='已起飛'; }
+    else if(f.stage==='ack'){ cls='done'; txt='已收到'; }
+    return `<div class="mon-row">
+      <span class="mon-name">${escapeHtml(f.name)}</span>
+      <span class="mon-badge ${f.gather?'g':'v'}">${f.gather?'飛聚跟隨':'跟隨'}</span>
+      <span class="mon-stat ${cls}">${txt}</span>
+    </div>`;
+  }).join('');
+}
 
 // ── 心跳 ─────────────────────────────────────────────────────────────
 function startHeartbeat(){
@@ -430,8 +515,9 @@ $('btnNameNext').addEventListener('click',()=>{
   pilotName=v; localStorage.setItem('pilotName',pilotName);
   showModeSelect();
 });
-$('btnModeView').addEventListener('click',()=>{ followerKind='view'; gatherMode=false; gotoFollowerCode(); });
-$('btnModeGather').addEventListener('click',()=>{ followerKind='gather'; gatherMode=true; gotoFollowerCode(); });
+$('btnModeView').addEventListener('click',()=>{ followerKind='view'; gatherMode=false; monitorMode=false; gotoFollowerCode(); });
+$('btnModeGather').addEventListener('click',()=>{ followerKind='gather'; gatherMode=true; monitorMode=false; gotoFollowerCode(); });
+$('btnModeMonitor').addEventListener('click',()=>{ followerKind='monitor'; gatherMode=false; monitorMode=true; gotoFollowerCode(); });
 $('btnModeBack').addEventListener('click',()=>{ showPage('scrName'); });
 $('btnFollowerBack').addEventListener('click',()=>{ showModeSelect(); });
 
@@ -448,12 +534,14 @@ $('btnFollowerOk').addEventListener('click',()=>{
 
 // ── 事件綁定：主畫面 ─────────────────────────────────────────────────
 $('btnMoreMenu').addEventListener('click',()=>showModal('moreModal'));
+$('monMore').addEventListener('click',()=>showModal('moreModal'));
 $('btnCloseMore').addEventListener('click',()=>hideModal('moreModal'));
 $('btnBackToModeSel').addEventListener('click',()=>{
   hideModal('moreModal');
   if(ws){ try{ws.close();}catch(e){} }
   clearInterval(heartbeatTimer); clearTimeout(reconnectTimer);
   connected=false; masterCode=''; towerConnected=false; wsConnected=false; ackPending=false;
+  monitorMode=false; gatherMode=false;
   showModeSelect();
 });
 $('btnRename').addEventListener('click',()=>{ hideModal('moreModal'); $('renameInput').value=pilotName; showModal('renameModal'); });
