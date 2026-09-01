@@ -173,7 +173,6 @@ input[type=text]:focus,input[type=number]:focus{border-color:var(--ac);}
     <div id="ackWrap" style="display:none;">
       <button class="btn green" id="btnAck" style="max-width:none;">收到</button>
     </div>
-    <button class="btn outline" id="btnShareLoc" style="max-width:none;font-size:15px;padding:11px;">📍 分享位置給塔台：關</button>
     <div class="readonly-banner" id="followerBanner" style="display:none;">跟隨模式 · 僅顯示</div>
   </div>
 </div>
@@ -390,8 +389,6 @@ function enterMain(){
   $('followerBanner').style.display='block';
   $('followerBanner').textContent = gatherMode ? '飛聚跟隨模式 · 收到指令須回報主控' : '跟隨模式 · 僅顯示';
   showPage('scrMain');
-  if(shareLoc) startGeo();
-  updateShareLocBtn();
   renderMain();
   startHeartbeat();
   if(!clockTimer) clockTimer=setInterval(()=>{ renderCountdown(); gatherNag(); },1000);
@@ -496,30 +493,7 @@ function startHeartbeat(){
 }
 function sendHeartbeat(){
   if(!wsConnected) return;
-  if(shareLoc && geoLat!=null) send({type:'pilot_update',battery:getBattery(),wifi:true,gps:true,lat:geoLat,lng:geoLng});
-  else send({type:'pilot_update',battery:getBattery(),wifi:true,gps:shareLoc?'searching':false});
-}
-
-// ── 分享位置給塔台 ─────────────────────────────────────────────────
-let shareLoc=(localStorage.getItem('shareLoc')==='1'), geoWatch=null, geoLat=null, geoLng=null;
-function updateShareLocBtn(){
-  const b=$('btnShareLoc'); if(!b) return;
-  b.textContent='📍 分享位置給塔台：'+(shareLoc?(geoLat!=null?'開':'定位中…'):'關');
-  b.classList.toggle('green', shareLoc && geoLat!=null);
-}
-function startGeo(){
-  if(geoWatch!=null || !navigator.geolocation) return;
-  geoWatch=navigator.geolocation.watchPosition(
-    pos=>{ geoLat=pos.coords.latitude; geoLng=pos.coords.longitude; updateShareLocBtn(); sendHeartbeat(); },
-    err=>{ showToast('定位失敗：'+err.message); },
-    {enableHighAccuracy:true,maximumAge:8000,timeout:15000});
-}
-function stopGeo(){ if(geoWatch!=null){ navigator.geolocation.clearWatch(geoWatch); geoWatch=null; } geoLat=geoLng=null; }
-function toggleShareLoc(){
-  shareLoc=!shareLoc; localStorage.setItem('shareLoc', shareLoc?'1':'0');
-  if(shareLoc){ if(!navigator.geolocation){ showToast('此裝置不支援定位'); shareLoc=false; } else startGeo(); }
-  else stopGeo();
-  updateShareLocBtn(); sendHeartbeat();
+  send({type:'pilot_update',battery:getBattery(),wifi:true,gps:false});
 }
 
 // ── 蜂鳴/震動（網頁版沒有實體喇叭，用短音效+震動代替） ──────────────
@@ -570,7 +544,6 @@ $('btnFollowerOk').addEventListener('click',()=>{
 });
 
 // ── 事件綁定：主畫面 ─────────────────────────────────────────────────
-$('btnShareLoc').addEventListener('click',toggleShareLoc);
 $('btnMoreMenu').addEventListener('click',()=>showModal('moreModal'));
 $('monMore').addEventListener('click',()=>showModal('moreModal'));
 $('btnCloseMore').addEventListener('click',()=>hideModal('moreModal'));

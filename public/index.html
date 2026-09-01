@@ -109,14 +109,14 @@ body{font-family:-apple-system,'Noto Sans TC',sans-serif;background:var(--bg);co
 .strip-status{flex:1;min-width:0;font-size:19px;color:var(--tx);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
 .strip-status .sub{font-size:14px;color:var(--tx2);}
 .strip-tags{display:flex;gap:4px;flex-shrink:0;align-items:center;flex-wrap:wrap;justify-content:flex-end;max-width:44%;}
-.strip-row2{display:flex;align-items:center;gap:12px;margin-top:8px;font-size:13px;color:var(--tx2);overflow-x:auto;white-space:nowrap;scrollbar-width:none;}
+.strip-row2{display:flex;align-items:center;gap:10px;margin-top:8px;font-size:13px;color:var(--tx2);overflow-x:auto;white-space:nowrap;scrollbar-width:none;}
 .strip-row2::-webkit-scrollbar{width:0;height:0;}
-.strip-row2 > span,.strip-row2 .strip-tt,.strip-row2 .strip-loc{flex-shrink:0;}
+.strip-row2 > *{flex-shrink:0;}
 .strip-row2 input,.strip-row2 select{background:var(--sf2);border:1px solid var(--bd);color:var(--tx);border-radius:6px;padding:5px 7px;font-size:13px;font-family:inherit;}
 .strip-row3{margin-top:6px;font-size:13px;color:var(--ac);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
 .strip-row3:empty{display:none;}
-.strip-meta{display:contents;}
-.strip-tt{font-weight:700;color:var(--ac);background:rgba(0,212,255,.12);border-radius:99px;padding:3px 9px;}
+.strip-meta{display:inline-flex;align-items:center;gap:10px;}
+.strip-tt{font-weight:700;color:var(--ac);background:rgba(0,212,255,.14);border-radius:99px;padding:3px 9px;}
 .strip-loc{font-weight:700;background:rgba(0,230,118,.16);color:var(--gr);border-radius:99px;padding:3px 10px;text-decoration:none;}
 .strip-loc.off{background:var(--sf3);color:var(--tx2);font-weight:400;}
 .multi-composer{position:fixed;bottom:0;left:0;right:0;background:var(--sf);border-top:2px solid var(--ac);padding:10px 12px 16px;z-index:140;display:none;flex-direction:column;gap:8px;max-height:44vh;overflow-y:auto;box-shadow:0 -6px 20px rgba(0,0,0,.35);}
@@ -507,13 +507,13 @@ function stripStatusHTML(p){
 }
 // 發送時間 + 位置放第二行（第一行太窄會被截掉/擋住）
 function stripMetaHTML(p){
-  let s='';
-  if(p.hasCommand && p.lastMessageTime) s+=`<span class="strip-tt">🕐 塔台 ${escapeHtml(p.lastMessageTime)}</span>`;
-  if(p.gps===true && p.lat && p.lng)
-    s+=`<a class="strip-loc" href="https://www.google.com/maps?q=${p.lat},${p.lng}&z=17" target="_blank" rel="noopener" onclick="event.stopPropagation()">📍 位置</a>`;
-  else
-    s+=`<span class="strip-loc off">📍 ${p.gps==='searching'?'定位中':'未分享'}</span>`;
-  return s;
+  const tt = p.lastMessageTime
+    ? `<span class="strip-tt">🕐 塔台 ${escapeHtml(p.lastMessageTime)}</span>`
+    : `<span class="strip-tt" style="background:var(--sf3);color:var(--tx2);font-weight:400">🕐 尚未發訊</span>`;
+  const loc = (p.gps===true && p.lat && p.lng)
+    ? `<a class="strip-loc" href="https://www.google.com/maps?q=${p.lat},${p.lng}&z=17" target="_blank" rel="noopener" onclick="event.stopPropagation()">📍 位置</a>`
+    : `<span class="strip-loc off">📍 ${p.gps==='searching'?'定位中':'無位置'}</span>`;
+  return tt+loc;
 }
 function stripRow2HTML(p){
   return `<span class="strip-meta">${stripMetaHTML(p)}</span>`
