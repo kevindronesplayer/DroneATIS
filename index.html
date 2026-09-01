@@ -100,20 +100,22 @@ body{font-family:-apple-system,'Noto Sans TC',sans-serif;background:var(--bg);co
 .cmd-btn:disabled{opacity:.28;cursor:not-allowed;}
 
 /* 多人模式：上方飛手狀態橫條（每人自帶公告/跑道/分類/跟隨者） + 底部發送區 */
-#pilotsList.multi{padding-bottom:calc(38vh + 24px);}
+#pilotsList.multi{padding-bottom:16px;} /* JS 依發送區實際高度動態加大 */
 .pilot-strip{background:var(--sf);border-bottom:1px solid var(--bd);border-left:4px solid transparent;padding:9px 12px;}
 .pilot-strip.sel{border-left-color:var(--ac);background:var(--sf3);}
 .pilot-strip.ack-pending{border-left-color:var(--am);}
 .strip-row1{display:flex;align-items:center;gap:10px;cursor:pointer;}
 .strip-name{font-size:23px;font-weight:700;flex-shrink:0;min-width:66px;}
-.strip-status{flex:1;font-size:19px;color:var(--tx);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.strip-status{flex:1;min-width:0;font-size:19px;color:var(--tx);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
 .strip-status .sub{font-size:14px;color:var(--tx2);}
-.strip-tags{display:flex;gap:4px;flex-shrink:0;align-items:center;flex-wrap:wrap;justify-content:flex-end;max-width:46%;}
-.strip-loc{font-size:13px;font-weight:700;background:rgba(0,212,255,.15);color:var(--ac);border-radius:99px;padding:3px 9px;text-decoration:none;white-space:nowrap;}
-.strip-row2{display:flex;align-items:center;gap:8px 12px;flex-wrap:wrap;margin-top:7px;font-size:13px;color:var(--tx2);}
+.strip-tags{display:flex;gap:4px;flex-shrink:0;align-items:center;flex-wrap:wrap;justify-content:flex-end;max-width:44%;}
+.strip-row2{display:flex;align-items:center;gap:8px 12px;flex-wrap:wrap;margin-top:8px;font-size:13px;color:var(--tx2);}
 .strip-row2 input,.strip-row2 select{background:var(--sf2);border:1px solid var(--bd);color:var(--tx);border-radius:6px;padding:5px 7px;font-size:13px;font-family:inherit;}
 .strip-row2 .strip-fol{color:var(--ac);flex-basis:100%;}
-.multi-composer{position:fixed;bottom:0;left:0;right:0;background:var(--sf);border-top:2px solid var(--ac);padding:10px 12px 16px;z-index:140;display:none;flex-direction:column;gap:8px;max-height:40vh;overflow-y:auto;box-shadow:0 -6px 20px rgba(0,0,0,.35);}
+.strip-meta{display:contents;}
+.strip-tt{font-weight:700;color:var(--ac);background:rgba(0,212,255,.12);border-radius:99px;padding:3px 9px;white-space:nowrap;}
+.strip-loc{font-size:13px;font-weight:700;background:rgba(0,230,118,.16);color:var(--gr);border-radius:99px;padding:3px 10px;text-decoration:none;white-space:nowrap;}
+.multi-composer{position:fixed;bottom:0;left:0;right:0;background:var(--sf);border-top:2px solid var(--ac);padding:10px 12px 16px;z-index:140;display:none;flex-direction:column;gap:8px;max-height:44vh;overflow-y:auto;box-shadow:0 -6px 20px rgba(0,0,0,.35);}
 .multi-composer.show{display:flex;}
 .mc-target{font-size:21px;font-weight:700;color:var(--ac);}
 .mc-lock{font-size:16px;color:var(--am);font-weight:700;}
@@ -494,17 +496,23 @@ function stripTagsHTML(p){
   if(tpInfo) t+=`<span class="ack-tag land">${tpInfo}</span>`;
   if(ackInfo) t+=`<span class="ack-tag ${ackInfo[0]}">${ackInfo[1]}</span>`;
   if(p.landingLocked) t+=`<span class="ack-tag land">🔒降落</span>`;
-  if(p.gps===true && p.lat && p.lng)
-    t+=`<a class="strip-loc" href="https://www.google.com/maps?q=${p.lat},${p.lng}&z=17" target="_blank" rel="noopener" onclick="event.stopPropagation()" title="看飛手位置">📍 位置</a>`;
   return t;
 }
 function stripStatusHTML(p){
-  const t=(p.hasCommand&&p.lastMessageTime)?` · 塔台 ${escapeHtml(p.lastMessageTime)}`:'';
-  return `${escapeHtml(pilotHeadline(p))}<span class="sub"> · ${p.battery??'—'}%${t}</span>`;
+  return `${escapeHtml(pilotHeadline(p))}<span class="sub"> · ${p.battery??'—'}%</span>`;
+}
+// 發送時間 + 位置按鈕放第二行（第一行太窄會被截掉/擋住）
+function stripMetaHTML(p){
+  let s='';
+  if(p.hasCommand && p.lastMessageTime) s+=`<span class="strip-tt">🕐 塔台 ${escapeHtml(p.lastMessageTime)}</span>`;
+  if(p.gps===true && p.lat && p.lng)
+    s+=`<a class="strip-loc" href="https://www.google.com/maps?q=${p.lat},${p.lng}&z=17" target="_blank" rel="noopener" onclick="event.stopPropagation()">📍 位置</a>`;
+  return s;
 }
 function stripRow2HTML(p){
   const fol=(p.followers&&p.followers.length)?`<span class="strip-fol">👥 跟隨: ${escapeHtml(p.followers.map(f=>f.name).join(', '))}</span>`:'';
-  return `<span>飛航公告 <b style="color:${p.notam?'var(--am)':'var(--tx2)'}">${escapeHtml(p.notam||'未設定')}</b></span>`
+  return `<span class="strip-meta">${stripMetaHTML(p)}</span>`
+    +`<span>飛航公告 <b style="color:${p.notam?'var(--am)':'var(--tx2)'}">${escapeHtml(p.notam||'未設定')}</b></span>`
     +`<span>跑道 RWY <input class="strip-rwy" data-cid="${p.clientId}" inputmode="numeric" maxlength="2" value="${escapeHtml((p.rwy||'').replace('RWY',''))}" style="width:44px;letter-spacing:2px"></span>`
     +`<span>分類 <select class="strip-grp" data-cid="${p.clientId}"><option value="">未分類</option>${groups.map(g=>`<option value="${g.groupId}" ${p.groupId===g.groupId?'selected':''}>${escapeHtml(g.name)}</option>`).join('')}</select></span>`
     +fol;
@@ -540,6 +548,7 @@ function selectPilot(cid){
   document.querySelectorAll('.pilot-strip').forEach(s=>s.classList.toggle('sel',s.dataset.cid===cid));
   renderComposer();
 }
+window.addEventListener('resize',()=>{ if(typeof fitComposerPad==='function') fitComposerPad(); });
 // pilots_update 時：只更新每條橫條的內容，不重建（避免跑道/分類輸入被打斷）
 function updateStrip(p){
   const el=document.getElementById('strip_'+p.clientId); if(!el) return;
@@ -547,6 +556,7 @@ function updateStrip(p){
   el.classList.toggle('ack-pending',!!p.ackPending);
   const st=el.querySelector('.strip-status'); if(st) st.innerHTML=stripStatusHTML(p);
   const tg=el.querySelector('.strip-tags'); if(tg) tg.innerHTML=stripTagsHTML(p);
+  const mt=el.querySelector('.strip-meta'); if(mt) mt.innerHTML=stripMetaHTML(p);
   const nm=el.querySelector('.strip-name'); if(nm) nm.textContent=p.name;
   const nt=el.querySelector('.strip-row2 b'); if(nt){ nt.textContent=p.notam||'未設定'; nt.style.color=p.notam?'var(--am)':'var(--tx2)'; }
   const rw=el.querySelector('.strip-rwy'); if(rw && document.activeElement!==rw) rw.value=(p.rwy||'').replace('RWY','');
@@ -584,11 +594,18 @@ function renderComposer(){
   bindComposerOnce();
   syncComposer();
 }
+// 依發送區實際高度撐開飛手列表底部，避免最後一條被蓋住
+function fitComposerPad(){
+  const mc=document.getElementById('multiComposer');
+  const list=document.getElementById('pilotsList');
+  if(!list) return;
+  list.style.paddingBottom = mc.classList.contains('show') ? (mc.offsetHeight + 20) + 'px' : '16px';
+}
 // 只更新內容，不動訊息輸入框（pilots_update 時用）
 function syncComposer(){
   const mc=document.getElementById('multiComposer');
   const p=pilots.find(x=>x.clientId===selectedCid);
-  if(!p || !pilotsTabActive()){ mc.classList.remove('show'); return; }
+  if(!p || !pilotsTabActive()){ mc.classList.remove('show'); fitComposerPad(); return; }
   mc.classList.add('show');
   const locked=!!p.landingLocked;
   document.getElementById('mcTarget').textContent='發送給：'+p.name;
@@ -605,6 +622,7 @@ function syncComposer(){
   const mi=document.getElementById('mcMsgInput');
   mi.disabled=locked; mi.placeholder=locked?'降落鎖定中，無法發送訊息':'輸入訊息給選中的飛手…';
   document.getElementById('mcMsgSend').disabled=locked;
+  fitComposerPad();
 }
 
 let pendingLandCid=null;
