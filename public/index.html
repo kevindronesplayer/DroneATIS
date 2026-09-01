@@ -109,12 +109,16 @@ body{font-family:-apple-system,'Noto Sans TC',sans-serif;background:var(--bg);co
 .strip-status{flex:1;min-width:0;font-size:19px;color:var(--tx);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
 .strip-status .sub{font-size:14px;color:var(--tx2);}
 .strip-tags{display:flex;gap:4px;flex-shrink:0;align-items:center;flex-wrap:wrap;justify-content:flex-end;max-width:44%;}
-.strip-row2{display:flex;align-items:center;gap:8px 12px;flex-wrap:wrap;margin-top:8px;font-size:13px;color:var(--tx2);}
+.strip-row2{display:flex;align-items:center;gap:12px;margin-top:8px;font-size:13px;color:var(--tx2);overflow-x:auto;white-space:nowrap;scrollbar-width:none;}
+.strip-row2::-webkit-scrollbar{width:0;height:0;}
+.strip-row2 > span,.strip-row2 .strip-tt,.strip-row2 .strip-loc{flex-shrink:0;}
 .strip-row2 input,.strip-row2 select{background:var(--sf2);border:1px solid var(--bd);color:var(--tx);border-radius:6px;padding:5px 7px;font-size:13px;font-family:inherit;}
-.strip-row2 .strip-fol{color:var(--ac);flex-basis:100%;}
+.strip-row3{margin-top:6px;font-size:13px;color:var(--ac);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.strip-row3:empty{display:none;}
 .strip-meta{display:contents;}
-.strip-tt{font-weight:700;color:var(--ac);background:rgba(0,212,255,.12);border-radius:99px;padding:3px 9px;white-space:nowrap;}
-.strip-loc{font-size:13px;font-weight:700;background:rgba(0,230,118,.16);color:var(--gr);border-radius:99px;padding:3px 10px;text-decoration:none;white-space:nowrap;}
+.strip-tt{font-weight:700;color:var(--ac);background:rgba(0,212,255,.12);border-radius:99px;padding:3px 9px;}
+.strip-loc{font-weight:700;background:rgba(0,230,118,.16);color:var(--gr);border-radius:99px;padding:3px 10px;text-decoration:none;}
+.strip-loc.off{background:var(--sf3);color:var(--tx2);font-weight:400;}
 .multi-composer{position:fixed;bottom:0;left:0;right:0;background:var(--sf);border-top:2px solid var(--ac);padding:10px 12px 16px;z-index:140;display:none;flex-direction:column;gap:8px;max-height:44vh;overflow-y:auto;box-shadow:0 -6px 20px rgba(0,0,0,.35);}
 .multi-composer.show{display:flex;}
 .mc-target{font-size:21px;font-weight:700;color:var(--ac);}
@@ -501,21 +505,24 @@ function stripTagsHTML(p){
 function stripStatusHTML(p){
   return `${escapeHtml(pilotHeadline(p))}<span class="sub"> · ${p.battery??'—'}%</span>`;
 }
-// 發送時間 + 位置按鈕放第二行（第一行太窄會被截掉/擋住）
+// 發送時間 + 位置放第二行（第一行太窄會被截掉/擋住）
 function stripMetaHTML(p){
   let s='';
   if(p.hasCommand && p.lastMessageTime) s+=`<span class="strip-tt">🕐 塔台 ${escapeHtml(p.lastMessageTime)}</span>`;
   if(p.gps===true && p.lat && p.lng)
     s+=`<a class="strip-loc" href="https://www.google.com/maps?q=${p.lat},${p.lng}&z=17" target="_blank" rel="noopener" onclick="event.stopPropagation()">📍 位置</a>`;
+  else
+    s+=`<span class="strip-loc off">📍 ${p.gps==='searching'?'定位中':'未分享'}</span>`;
   return s;
 }
 function stripRow2HTML(p){
-  const fol=(p.followers&&p.followers.length)?`<span class="strip-fol">👥 跟隨: ${escapeHtml(p.followers.map(f=>f.name).join(', '))}</span>`:'';
   return `<span class="strip-meta">${stripMetaHTML(p)}</span>`
     +`<span>飛航公告 <b style="color:${p.notam?'var(--am)':'var(--tx2)'}">${escapeHtml(p.notam||'未設定')}</b></span>`
     +`<span>跑道 RWY <input class="strip-rwy" data-cid="${p.clientId}" inputmode="numeric" maxlength="2" value="${escapeHtml((p.rwy||'').replace('RWY',''))}" style="width:44px;letter-spacing:2px"></span>`
-    +`<span>分類 <select class="strip-grp" data-cid="${p.clientId}"><option value="">未分類</option>${groups.map(g=>`<option value="${g.groupId}" ${p.groupId===g.groupId?'selected':''}>${escapeHtml(g.name)}</option>`).join('')}</select></span>`
-    +fol;
+    +`<span>分類 <select class="strip-grp" data-cid="${p.clientId}"><option value="">未分類</option>${groups.map(g=>`<option value="${g.groupId}" ${p.groupId===g.groupId?'selected':''}>${escapeHtml(g.name)}</option>`).join('')}</select></span>`;
+}
+function stripRow3HTML(p){
+  return (p.followers&&p.followers.length)?`👥 跟隨: ${escapeHtml(p.followers.map(f=>f.name).join(', '))}`:'';
 }
 function renderStrips(conn){
   const el=document.getElementById('pilotsList');
@@ -526,6 +533,7 @@ function renderStrips(conn){
         <span class="strip-tags">${stripTagsHTML(p)}</span>
       </div>
       <div class="strip-row2">${stripRow2HTML(p)}</div>
+      <div class="strip-row3">${stripRow3HTML(p)}</div>
     </div>`).join('');
   el.querySelectorAll('.strip-row1').forEach(r=>{
     r.addEventListener('click',()=>{ selectPilot(r.dataset.cid); });
@@ -567,10 +575,7 @@ function updateStrip(p){
       gp.innerHTML=`<option value="">未分類</option>${groups.map(g=>`<option value="${g.groupId}" ${p.groupId===g.groupId?'selected':''}>${escapeHtml(g.name)}</option>`).join('')}`;
     }
   }
-  let fl=el.querySelector('.strip-fol');
-  const folTxt=(p.followers&&p.followers.length)?('👥 跟隨: '+p.followers.map(f=>f.name).join(', ')):'';
-  if(folTxt && !fl){ fl=document.createElement('span'); fl.className='strip-fol'; el.querySelector('.strip-row2').appendChild(fl); }
-  if(fl) fl.textContent=folTxt;
+  const r3=el.querySelector('.strip-row3'); if(r3) r3.textContent=stripRow3HTML(p);
 }
 
 let composerBound=false;
