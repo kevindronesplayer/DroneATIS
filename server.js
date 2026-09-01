@@ -176,6 +176,7 @@ function applyStatus(pilot,status,landingTime){
   pilot.lastCommType='status';
   pilot.hasCommand=true;
   pilot.lastMessageTime=nowTimeStr(); // 塔台每次來訊（指令或訊息）的時間，飛手端顯示用，跟 line 一樣
+  pilot.landingReported=false; // 新指令 → 清除「已回報降落完成」旗標
   if(landingTime) pilot.landingTime=landingTime;
   const gn=groupName(pilot.groupId);
   const {tName,tType}=getActiveTower();
@@ -221,14 +222,21 @@ wss.on('connection',ws=>{
     const conn=connections.get(ws);
 
     switch(msg.type){
-      case 'tower_hello':
+      case 'tower_hello':{
         conn.role='tower';
+        const nameChanged = msg.towerName && msg.towerName!==towerNameGlobal;
+        const typeChanged = msg.towerType && msg.towerType!==towerTypeGlobal;
         if(msg.towerName){ conn.towerName=msg.towerName; towerNameGlobal=msg.towerName; }
         if(msg.towerType){ conn.towerType=msg.towerType; towerTypeGlobal=msg.towerType; }
         // 先送 groups_update，再送 tower_state，確保塔台先有分類資料
         ws.send(JSON.stringify({type:'groups_update',groups:groupSnap()}));
         ws.send(JSON.stringify({type:'tower_state',pilots:pilotSnap(),groups:groupSnap(),flightLog:flightLog.slice(-200),commLog:commLog.slice(-200)}));
+        // 塔台名稱/類型有變更 → 通知所有飛手/跟隨/監看端更新畫面
+        if(nameChanged||typeChanged){
+          bcast({type:'tower_info',towerName:towerNameGlobal,towerType:towerTypeGlobal},c=>c&&c.role!=='tower');
+        }
         break;
+      }
 
       case 'tower_add_pilot':{
         let found=null;
@@ -379,6 +387,7 @@ wss.on('connection',ws=>{
           lastMessageTime: masterPilot.lastMessageTime||'',
           lastCommType: masterPilot.lastCommType||'status',
           hasCommand: !!masterPilot.hasCommand,
+          landDone: !!masterPilot.landingReported,
           notam: masterPilot.notam||'',
           rwy: masterPilot.rwy||''
         }));
@@ -475,7 +484,7 @@ wss.on('connection',ws=>{
         const ackType=msg.ackType||'ack'; // ack / takeoff / landing_ack / landing_done
         pilot.ackPending = (ackType==='landing_ack'); // landing_ack 後還要等 landing_done
         pilot.ackStatus=ackType;
-        if(ackType==='landing_done'){ pilot.ackPending=false; pilot.landingLocked=false; }
+        if(ackType==='landing_done'){ pilot.ackPending=false; pilot.landingLocked=false; pilot.landingReported=true; }
         toTower({type:'pilots_update',pilots:pilotSnap()});
         console.log('[ACK] master clientId:', conn.clientId, 'ackType:', ackType);
         let followerCount=0;
@@ -575,6 +584,7 @@ wss.on('connection',ws=>{
         pilot.ackStatus='landing_done';  // 更新回應狀態為已降落
         pilot.ackPending=false;
         pilot.landingLocked=false;
+        pilot.landingReported=true;
         const gn=groupName(pilot.groupId);
         const {tName,tType}=getActiveTower();
         const ldTime=nowTimeStr().replace(':','');

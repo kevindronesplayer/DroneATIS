@@ -108,7 +108,8 @@ body{font-family:-apple-system,'Noto Sans TC',sans-serif;background:var(--bg);co
 .strip-name{font-size:23px;font-weight:700;flex-shrink:0;min-width:66px;}
 .strip-status{flex:1;font-size:19px;color:var(--tx);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
 .strip-status .sub{font-size:14px;color:var(--tx2);}
-.strip-tags{display:flex;gap:4px;flex-shrink:0;align-items:center;flex-wrap:wrap;justify-content:flex-end;max-width:42%;}
+.strip-tags{display:flex;gap:4px;flex-shrink:0;align-items:center;flex-wrap:wrap;justify-content:flex-end;max-width:46%;}
+.strip-loc{font-size:13px;font-weight:700;background:rgba(0,212,255,.15);color:var(--ac);border-radius:99px;padding:3px 9px;text-decoration:none;white-space:nowrap;}
 .strip-row2{display:flex;align-items:center;gap:8px 12px;flex-wrap:wrap;margin-top:7px;font-size:13px;color:var(--tx2);}
 .strip-row2 input,.strip-row2 select{background:var(--sf2);border:1px solid var(--bd);color:var(--tx);border-radius:6px;padding:5px 7px;font-size:13px;font-family:inherit;}
 .strip-row2 .strip-fol{color:var(--ac);flex-basis:100%;}
@@ -412,7 +413,7 @@ function handle(msg){
       _lastAck[p.clientId]=p.ackStatus||'';
     });
     const conn=pilots.filter(p=>p.towerConnected&&p.wifi!==false);
-    if(selectedCid && !conn.find(p=>p.clientId===selectedCid)) selectedCid=null;
+    ensureSelection(conn); // 有飛手就自動選一位，讓底部發送區一直開著
     const curIds=Array.from(document.querySelectorAll('.pilot-strip')).map(s=>s.dataset.cid);
     const newIds=conn.map(p=>p.clientId);
     if(JSON.stringify(curIds)!==JSON.stringify(newIds)) renderStrips(conn);
@@ -490,10 +491,11 @@ function stripTagsHTML(p){
   const grp=groups.find(g=>g.groupId===p.groupId);
   let t='';
   if(grp) t+=`<span class="grp-badge">${escapeHtml(grp.name)}</span>`;
-  if(p.rwy) t+=`<span class="ack-tag land">${escapeHtml(p.rwy)}</span>`;
   if(tpInfo) t+=`<span class="ack-tag land">${tpInfo}</span>`;
   if(ackInfo) t+=`<span class="ack-tag ${ackInfo[0]}">${ackInfo[1]}</span>`;
   if(p.landingLocked) t+=`<span class="ack-tag land">🔒降落</span>`;
+  if(p.gps===true && p.lat && p.lng)
+    t+=`<a class="strip-loc" href="https://www.google.com/maps?q=${p.lat},${p.lng}&z=17" target="_blank" rel="noopener" onclick="event.stopPropagation()" title="看飛手位置">📍 位置</a>`;
   return t;
 }
 function stripStatusHTML(p){

@@ -23,7 +23,7 @@
 #define GPS_RX_PIN    32   // Core2 PORT.A（外接I2C腳位，這裡改當UART用；訊號1=RXD）
 #define GPS_TX_PIN    33   // Core2 PORT.A（訊號2=TXD）
 #define GPS_BAUD      115200
-#define FW_VERSION    21
+#define FW_VERSION    22
 #define UPDATE_CHECK_URL "https://droneatis-production.up.railway.app/firmware/version.json"
 
 // ── NVS 儲存 ─────────────────────────────────────────────────────────────────
@@ -183,7 +183,11 @@ int getNowTotalSecs(){
   struct tm t; if(!getLocalTime(&t)) return 0;
   return t.tm_hour*3600+t.tm_min*60+t.tm_sec;
 }
+int immEndSec = -1; // 馬上降落：固定倒數截止秒（當天秒數）；-1 表示非馬上降落
+int landTimeSecs();
+int landDiffSec(){ int d=landTimeSecs()-getNowTotalSecs(); if(d<-43200) d+=86400; return d; }
 int landTimeSecs(){
+  if(immEndSec>=0) return immEndSec;
   // 輸入 HHMM 代表「要在 HH:MM 前完成降落」，截止點為 HH:(MM-1):59
   if(landingTimeStr.length()<4) return 0;
   int lh=landingTimeStr.substring(0,2).toInt();
@@ -772,14 +776,16 @@ void webSocketEvent(WStype_t wsType, uint8_t* payload, size_t length){
             if(raw.length()>4) landingReason=raw.substring(4);
           } else landingTimeStr=raw;
         }
-        landState=(currentStatus=="降落")?LAND_WAIT_ACK:LAND_NONE;
+        immEndSec=-1;
+        bool landDone=(doc["landDone"]|false); // 主控已回報降落完成 → 直接看「降落＋時間」，不進回報流程
+        landState=(currentStatus=="降落"&&!landDone)?LAND_WAIT_ACK:LAND_NONE;
         lastMessageTime=doc["lastMessageTime"]|"";  // 上次塔台來訊時間（指令或訊息）
         String lct=doc["lastCommType"]|"status";
         if(lct=="message"){ lastMessage=doc["lastMessage"]|""; showingMessage=(lastMessage.length()>0); }
         else { showingMessage=false; }
         everReceivedCommand=(doc["hasCommand"]|false);
         // 飛聚跟隨模式：加入時若已有塔台指令/訊息，一律要求回報一次，直接停在指令畫面
-        if(pilotMode==MODE_GATHER&&(everReceivedCommand||showingMessage)){
+        if(!landDone && pilotMode==MODE_GATHER&&(everReceivedCommand||showingMessage)){
           ackPending=true; ackReceivedAt=millis(); ackDeadline=millis()+30000; buzzPhase=0;
           currentScreen=SCR_COMMAND;
           if(showingMessage) drawMessage(); else drawCommand();
@@ -793,6 +799,10 @@ void webSocketEvent(WStype_t wsType, uint8_t* payload, size_t length){
         groupName=doc["groupName"]|""; towerName=doc["towerName"]|"塔台"; towerType=doc["towerType"]|"南塔";
         currentScreen=SCR_IDLE; drawIdle(); beep3();
       }
+      else if(type=="tower_info"){ // 塔台改南北塔或名字
+        towerName=doc["towerName"]|towerName; towerType=doc["towerType"]|towerType;
+        if(currentScreen==SCR_IDLE) drawIdle();
+      }
       else if(type=="command"||type=="follower_sync"){
         showingMessage=false;
         everReceivedCommand=true;
@@ -801,13 +811,14 @@ void webSocketEvent(WStype_t wsType, uint8_t* payload, size_t length){
         JsonVariant lt=doc["landingTime"];
         landingReason="";
         if(immediateLand){
-          // 馬上降落：抓「下下一分鐘」當降落時間，配合「HHMM 表示要在 HH:MM 前降完」，倒數約 1~2 分
-          int total=(getNowTotalSecs()+120)%86400;
-          char buf[5]; sprintf(buf,"%02d%02d",total/3600,(total/60)%60);
+          // 馬上降落：從收到指令當下起算，剛好倒數 1 分鐘
+          immEndSec=(getNowTotalSecs()+60)%86400;
+          char buf[5]; sprintf(buf,"%02d%02d",immEndSec/3600,(immEndSec/60)%60);
           landingTimeStr=String(buf);
         }
-        else if(lt.isNull()||lt.as<String>()=="null"||lt.as<String>()=="") landingTimeStr="";
+        else if(lt.isNull()||lt.as<String>()=="null"||lt.as<String>()=="") { landingTimeStr=""; immEndSec=-1; }
         else {
+          immEndSec=-1;
           String raw=lt.as<String>();
           if(raw.length()>=4&&isDigit(raw[0])&&isDigit(raw[1])&&isDigit(raw[2])&&isDigit(raw[3])){
             landingTimeStr=raw.substring(0,4);
@@ -900,7 +911,7 @@ void beep3(){ buzz(880,100);delay(100);buzz(1100,100);delay(100);buzz(1320,150);
 
 void handleBuzzer(unsigned long now){
   if(pilotMode==MODE_FOLLOWER) return;
-  if(landState==LAND_COUNTDOWN){ int diff=landTimeSecs()-getNowTotalSecs(); if(diff<=0&&now-lastBuzzAt>1500){buzz(800,1200);lastBuzzAt=now;} return; }
+  if(landState==LAND_COUNTDOWN){ int diff=landDiffSec(); if(diff<=0&&now-lastBuzzAt>1500){buzz(800,1200);lastBuzzAt=now;} return; }
   if(!ackPending){buzzPhase=0;return;}
   unsigned long e=now-ackReceivedAt;
   if(e>10000&&e<30000&&buzzPhase<1) buzzPhase=1;
@@ -989,13 +1000,15 @@ void drawIdle(){
   } else if(!everReceivedCommand){
     fSm(); M5.Display.setTextColor(CLR_GRAY); M5.Display.drawString("等待塔台來訊",160,150);
   } else if(hasReason){
-    // 只留「降落＋時間」，不再另外顯示一行「降落」
+    // 只留「降落＋時間」，字放大
     M5.Display.setTextColor(sc);
-    fSm(); M5.Display.drawString("降落 "+getLandTimeDisplay(),160,150);
-    fXs(); M5.Display.setTextColor(CLR_WHITE); M5.Display.drawString(landingReason,160,178);
+    M5.Display.setFont(&fonts::efontTW_24); M5.Display.setTextSize(1.5);
+    M5.Display.drawString("降落 "+getLandTimeDisplay(),160,148);
+    fXs(); M5.Display.setTextColor(CLR_WHITE); M5.Display.drawString(landingReason,160,180);
   } else if(currentStatus=="降落"&&landingTimeStr.length()>0){
     M5.Display.setTextColor(sc);
-    fSm(); M5.Display.drawString("降落 "+getLandTimeDisplay(),160,155);
+    M5.Display.setFont(&fonts::efontTW_24); M5.Display.setTextSize(1.5);
+    M5.Display.drawString("降落 "+getLandTimeDisplay(),160,152);
   } else {
     M5.Display.setTextColor(sc);
     fLg(); M5.Display.drawString(currentStatus,160,150);
@@ -1195,7 +1208,7 @@ void updateClock(){
   fXs(); M5.Display.setTextDatum(middle_left); M5.Display.setTextColor(CLR_WHITE);
   M5.Display.drawString(getNowTime(),6,16);
   if(currentScreen==SCR_COMMAND&&(landState==LAND_WAIT_ACK||landState==LAND_COUNTDOWN)&&landingTimeStr.length()>=4){
-    int diff=landTimeSecs()-getNowTotalSecs();
+    int diff=landDiffSec();
     M5.Display.fillRect(162,110,158,28,CLR_BG);
     M5.Display.setFont(&fonts::efontTW_24); M5.Display.setTextSize(1); M5.Display.setTextDatum(middle_left);
     if(diff>0){ char buf[16]; sprintf(buf,"還有 %02d:%02d",diff/60,diff%60); M5.Display.setTextColor(diff<60?CLR_RED:CLR_GREEN); M5.Display.drawString(buf,165,122); }

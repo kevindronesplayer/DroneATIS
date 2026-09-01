@@ -1,5 +1,5 @@
 {
-  "version": 21,
-  "notes": "降落流程中螢幕不休眠；回報降落後只留「降落＋時間」一行；更新畫面說明字自動換行不爆框",
+  "version": 22,
+  "notes": "馬上降落固定倒數1分鐘；塔台改名/南北塔飛手端同步更新；晚加入且主控已降落者直接看降落＋時間；降落＋時間字放大",
   "url": "https://droneatis-production.up.railway.app/firmware/esp32_pilot.bin"
 }

@@ -215,6 +215,7 @@ let currentStatus='開機預備', lastMessage='', lastMessageTime='', showingMes
 let landingTimeStr='', landingReason='';
 let ackPending=false, ackDeadline=0;
 let landState='none'; // none | wait_ack | countdown
+let immEndSec=null;   // 馬上降落：絕對倒數截止秒（當天秒數）
 let heartbeatTimer=null, clockTimer=null, reconnectTimer=null;
 
 function $(id){return document.getElementById(id);}
@@ -263,19 +264,27 @@ function handle(msg){
     case 'monitor_followers':
       renderMonitor(msg);
       break;
+    case 'tower_info': // 塔台改南北塔或名字
+      towerName=msg.towerName||towerName; towerTypeStr=msg.towerType||towerTypeStr;
+      if(document.getElementById('scrMain').classList.contains('active')) renderMain();
+      break;
     case 'follower_registered':
       clientId=msg.clientId; towerConnected=true;
       groupName=msg.groupName||''; towerName=msg.towerName||'塔台'; towerTypeStr=msg.towerType||'南塔';
       notamCode=msg.notam||''; rwyDir=msg.rwy||'';
       currentStatus=msg.status||'開機預備';
+      immEndSec=null;
       applyLandingTime(msg.landingTime);
-      landState=(currentStatus==='降落')?'wait_ack':'none';
       lastMessageTime=msg.lastMessageTime||''; // 上次塔台來訊時間（指令或訊息）
       if(msg.lastCommType==='message'){ lastMessage=msg.lastMessage||''; showingMessage=!!lastMessage; }
       else showingMessage=false;
       everReceivedCommand=!!msg.hasCommand;
-      // 飛聚跟隨模式：加入時若已有塔台指令/訊息，一律要求回報一次
-      if(gatherMode && (everReceivedCommand || showingMessage)){ ackPending=true; ackDeadline=Date.now()+30000; lastNagAt=Date.now(); }
+      // 主控已回報降落完成 → 晚加入的跟隨者直接看「降落＋時間」，不進回報流程
+      if(msg.landDone){ landState='none'; }
+      else {
+        landState=(currentStatus==='降落')?'wait_ack':'none';
+        if(gatherMode && (everReceivedCommand || showingMessage)){ ackPending=true; ackDeadline=Date.now()+30000; lastNagAt=Date.now(); }
+      }
       enterMain();
       break;
     case 'follower_error':
@@ -291,11 +300,11 @@ function handle(msg){
       currentStatus=msg.status;
       lastMessageTime=msg.time||nowClock(); // 塔台這次來訊的時間（指令也要顯示，跟 line 一樣）
       if(msg.immediate){
-        // 馬上降落：抓「下下一分鐘」當降落時間，配合「HHMM 表示要在 HH:MM 前降完」，倒數約 1~2 分
-        const total=(getNowTotalSecs()+120)%86400;
-        landingTimeStr=String(Math.floor(total/3600)).padStart(2,'0')+String(Math.floor(total/60)%60).padStart(2,'0');
+        // 馬上降落：從收到指令當下起算，剛好倒數 1 分鐘
+        immEndSec=(getNowTotalSecs()+60)%86400;
+        landingTimeStr=String(Math.floor(immEndSec/3600)).padStart(2,'0')+String(Math.floor(immEndSec/60)%60).padStart(2,'0');
         landingReason='';
-      } else applyLandingTime(msg.landingTime);
+      } else { immEndSec=null; applyLandingTime(msg.landingTime); }
       if(msg.groupName!==undefined && msg.groupName!=='') groupName=msg.groupName;
       landState=(currentStatus==='降落')?'wait_ack':'none';
       if(gatherMode){ ackPending=true; ackDeadline=Date.now()+30000; lastNagAt=Date.now(); }
@@ -362,6 +371,7 @@ function applyLandingTime(raw){
 }
 function getNowTotalSecs(){ const d=new Date(); return d.getHours()*3600+d.getMinutes()*60+d.getSeconds(); }
 function landTimeSecs(){
+  if(immEndSec!=null) return immEndSec; // 馬上降落：固定截止秒
   // 輸入 HHMM 代表「要在 HH:MM 前完成降落」，故截止點為 HH:(MM-1):59
   if(!landingTimeStr||landingTimeStr.length<4) return 0;
   const lh=parseInt(landingTimeStr.slice(0,2),10), lm=parseInt(landingTimeStr.slice(2,4),10);
@@ -413,9 +423,9 @@ function renderMain(){
   } else if(!everReceivedCommand){
     headline.textContent='等待塔台來訊'; headline.style.fontSize='20px'; headline.style.color='var(--tx2)';
   } else if(currentStatus==='降落' && landingTimeStr){
-    // 只留「降落 + 時間」一行，不再另外顯示一行「降落」
+    // 只留「降落 + 時間」一行，字放大
     headline.textContent='降落 '+getLandTimeDisplay();
-    headline.style.fontSize='26px'; headline.style.color='var(--am)';
+    headline.style.fontSize='36px'; headline.style.color='var(--am)';
     landCountEl.style.display='block';
     if(landingReason){ landReasonEl.style.display='block'; landReasonEl.textContent=landingReason; }
   } else {
@@ -440,7 +450,8 @@ function renderMain(){
 
 function renderCountdown(){
   if(!(currentStatus==='降落' && landingTimeStr && !showingMessage && everReceivedCommand)){ $('landCountText').style.display='none'; return; }
-  const diff=landTimeSecs()-getNowTotalSecs();
+  let diff=landTimeSecs()-getNowTotalSecs();
+  if(diff<-43200) diff+=86400; // 跨午夜
   const el=$('landCountText'); el.style.display='block';
   if(diff>0){
     const mm=String(Math.floor(diff/60)).padStart(2,'0'), ss=String(diff%60).padStart(2,'0');
