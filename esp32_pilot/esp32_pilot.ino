@@ -23,7 +23,7 @@
 #define GPS_RX_PIN    32   // Core2 PORT.A（外接I2C腳位，這裡改當UART用；訊號1=RXD）
 #define GPS_TX_PIN    33   // Core2 PORT.A（訊號2=TXD）
 #define GPS_BAUD      115200
-#define FW_VERSION    22
+#define FW_VERSION    23
 #define UPDATE_CHECK_URL "https://droneatis-production.up.railway.app/firmware/version.json"
 
 // ── NVS 儲存 ─────────────────────────────────────────────────────────────────
@@ -247,14 +247,16 @@ void drawTopBar(){
   M5.Display.setTextDatum(middle_left);
   M5.Display.setTextColor(CLR_WHITE);
   M5.Display.drawString(getNowTime(),4,16);
-  M5.Display.setTextDatum(middle_center);
+  // 名字靠左（緊接在時間後面），不置中，把右邊空間留給更大的「更多」鍵
   M5.Display.setTextColor(CLR_ACCENT);
-  M5.Display.drawString(pilotName,160,16);
-  M5.Display.fillRoundRect(206,4,40,24,4,CLR_SURFACE); M5.Display.drawRoundRect(206,4,40,24,4,CLR_GRAY);
-  M5.Display.setTextColor(CLR_GRAY);
-  M5.Display.drawString("更多",226,16);
+  M5.Display.drawString(pilotName.substring(0,7),56,16);
+  // 更多：加大按鍵、幾乎佔滿頂列高度，好按
+  M5.Display.fillRoundRect(190,1,62,30,6,CLR_SURFACE); M5.Display.drawRoundRect(190,1,62,30,6,CLR_ACCENT);
+  fSm(); M5.Display.setTextDatum(middle_center); M5.Display.setTextColor(CLR_WHITE);
+  M5.Display.drawString("更多",221,16);
+  fXs();
   bool ok=(WiFi.status()==WL_CONNECTED&&wsConnected);
-  M5.Display.fillCircle(252,16,5,ok?CLR_GREEN:CLR_RED);
+  M5.Display.fillCircle(258,16,4,ok?CLR_GREEN:CLR_RED);
   drawBattery();
 }
 
@@ -564,9 +566,13 @@ void drawModeSelect(){
   M5.Display.setFont(nullptr); M5.Display.setTextSize(2);
   M5.Display.setTextDatum(middle_center);
   M5.Display.setTextColor(CLR_ACCENT);
-  M5.Display.drawString("DroneATIS",160,24);
+  M5.Display.drawString("DroneATIS",150,24);
   M5.Display.setFont(nullptr); M5.Display.setTextSize(1); M5.Display.setTextColor(CLR_GRAY);
-  M5.Display.drawString(pilotName,160,46);
+  M5.Display.drawString(pilotName,150,46);
+  // 關機鍵（右上角）
+  M5.Display.fillRoundRect(240,4,76,30,7,CLR_SURFACE); M5.Display.drawRoundRect(240,4,76,30,7,CLR_RED);
+  fSm(); M5.Display.setTextDatum(middle_center); M5.Display.setTextColor(CLR_RED);
+  M5.Display.drawString("關機",278,18);
   // 說明文字用縮小字避免爆框
   #define MSSUB(txt,cy,col) do{ M5.Display.setFont(&fonts::efontTW_24); M5.Display.setTextSize(0.62); M5.Display.setTextColor(col); M5.Display.drawString(txt,160,cy); }while(0)
   // 主控模式
@@ -1194,6 +1200,12 @@ void doPoweroff(){
   delay(300);
   M5.Power.powerOff();
 }
+void returnFromPoweroff(){
+  if(powerOffReturnScreen==SCR_WIFI_SCAN){ currentScreen=SCR_WIFI_SCAN; drawWifiList(); }
+  else if(powerOffReturnScreen==SCR_COMMAND){ currentScreen=SCR_COMMAND; drawCommand(); }
+  else if(powerOffReturnScreen==SCR_MODE_SELECT){ currentScreen=SCR_MODE_SELECT; drawModeSelect(); }
+  else { currentScreen=SCR_IDLE; drawIdle(); }
+}
 
 void showEndMsg(){
   M5.Display.fillRect(40,100,240,36,CLR_SURFACE);
@@ -1414,12 +1426,13 @@ void handleTouch(){
   int tx=t.x, ty=t.y;
 
   // 更多選單：頂部列，任何有畫面頂欄的畫面都能點
-  if((currentScreen==SCR_IDLE||currentScreen==SCR_COMMAND)&&tx>=206&&tx<=246&&ty>=4&&ty<=28){ drawMoreMenu(); return; }
+  if((currentScreen==SCR_IDLE||currentScreen==SCR_COMMAND)&&tx>=184&&tx<=248&&ty<=34){ drawMoreMenu(); return; }
 
   if(currentScreen==SCR_WIFI_SCAN){ handleWifiListTouch(tx,ty); return; }
   if(currentScreen==SCR_NAME_INPUT||currentScreen==SCR_WIFI_PASS||currentScreen==SCR_FOLLOWER_CODE){ handleKeyboardTouch(tx,ty); return; }
   if(currentScreen==SCR_MODE_SELECT){
-    if(ty>=36&&ty<60){ kbBuffer=pilotName; kbHint="更改飛手名字（英文小寫）"; kbTarget="rename_mode"; kbShift=false; kbPage=0; kbMaxLen=10; currentScreen=SCR_NAME_INPUT; drawKeyboard(); return; }
+    if(ty<=36&&tx>=232){ drawPoweroffConfirm(); return; } // 右上角關機
+    if(ty>=36&&ty<60&&tx<230){ kbBuffer=pilotName; kbHint="更改飛手名字（英文小寫）"; kbTarget="rename_mode"; kbShift=false; kbPage=0; kbMaxLen=10; currentScreen=SCR_NAME_INPUT; drawKeyboard(); return; }
     if(ty>=62&&ty<=118){ pilotMode=MODE_MASTER; connectWebSocket(); }
     else if(ty>=124&&ty<=180){ pilotMode=MODE_FOLLOWER; gpsEnabled=false; gpsFixed=false; drawFollowerInput(); }
     else if(ty>=186&&ty<=238){ pilotMode=MODE_GATHER; gpsEnabled=false; gpsFixed=false; drawFollowerInput(); }
@@ -1427,9 +1440,9 @@ void handleTouch(){
   }
   if(currentScreen==SCR_IDLE){
     // WiFi 狀態燈：點擊可重新選擇 WiFi
-    if(tx>=246&&tx<=264&&ty>=4&&ty<=28){ drawWifiChangeConfirm(); return; }
+    if(tx>=250&&tx<=272&&ty<=30){ drawWifiChangeConfirm(); return; }
     // 名字觸控改名（主控）
-    if(tx>80&&tx<188&&ty<32&&pilotMode==MODE_MASTER){ kbBuffer=pilotName; kbHint="更改飛手名字（英文小寫）"; kbTarget="rename"; kbShift=false; kbPage=0; kbMaxLen=10; currentScreen=SCR_NAME_INPUT; drawKeyboard(); return; }
+    if(tx>=40&&tx<182&&ty<32&&pilotMode==MODE_MASTER){ kbBuffer=pilotName; kbHint="更改飛手名字（英文小寫）"; kbTarget="rename"; kbShift=false; kbPage=0; kbMaxLen=10; currentScreen=SCR_NAME_INPUT; drawKeyboard(); return; }
     // GPS
     if(tx>232&&tx<314&&ty>34&&ty<56){ if(pilotMode==MODE_MASTER){ gpsEnabled=!gpsEnabled; if(!gpsEnabled)gpsFixed=false; drawGpsBtn(); sendHeartbeat(); } }
     // 公告
@@ -1454,11 +1467,7 @@ void handleTouch(){
     else { turnpointSource=2; keypadMode=KP_TURNPOINT; keypadBuffer=""; drawMinuteKeypad(); }
   }
   else if(currentScreen==SCR_POWEROFF_CONFIRM){
-    if(tx<160){
-      if(powerOffReturnScreen==SCR_WIFI_SCAN){ currentScreen=SCR_WIFI_SCAN; drawWifiList(); }
-      else if(powerOffReturnScreen==SCR_COMMAND){ currentScreen=SCR_COMMAND; drawCommand(); }
-      else { currentScreen=SCR_IDLE; drawIdle(); }
-    }
+    if(tx<160) returnFromPoweroff();
     else { doPoweroff(); }
   }
   else if(currentScreen==SCR_WIFI_CHANGE_CONFIRM){
@@ -1508,12 +1517,7 @@ void handleButtons(){
     if(currentScreen==SCR_WIFI_PASS){ currentScreen=SCR_WIFI_SCAN; drawWifiList(); return; }
     if(currentScreen==SCR_FOLLOWER_CODE){ pilotMode=MODE_NONE; currentScreen=SCR_MODE_SELECT; drawModeSelect(); return; }
     if(currentScreen==SCR_TURNPOINT_CONFIRM){ currentScreen=SCR_IDLE; drawIdle(); return; }
-    if(currentScreen==SCR_POWEROFF_CONFIRM){
-      if(powerOffReturnScreen==SCR_WIFI_SCAN){ currentScreen=SCR_WIFI_SCAN; drawWifiList(); }
-      else if(powerOffReturnScreen==SCR_COMMAND){ currentScreen=SCR_COMMAND; drawCommand(); }
-      else { currentScreen=SCR_IDLE; drawIdle(); }
-      return;
-    }
+    if(currentScreen==SCR_POWEROFF_CONFIRM){ returnFromPoweroff(); return; }
     if(currentScreen==SCR_WIFI_CHANGE_CONFIRM){ currentScreen=SCR_IDLE; drawIdle(); return; }
     if(currentScreen==SCR_UPDATE_CONFIRM){ currentScreen=SCR_MODE_SELECT; drawModeSelect(); return; }
     if(currentScreen==SCR_MORE_MENU){ currentScreen=moreMenuReturnScreen; if(currentScreen==SCR_COMMAND) drawCommand(); else { currentScreen=SCR_IDLE; drawIdle(); } return; }
@@ -1569,21 +1573,24 @@ void setup(){
   loadPrefs();
 
   if(M5.Power.isCharging()){
-    drawCharging(); bool doboot=false;
+    drawCharging();
+    bool doboot=false;
+    unsigned long fullSince=0, notChgSince=0, lastRedraw=millis();
     while(!doboot){
       M5.update();
-      if(M5.BtnA.wasClicked()||M5.BtnB.wasClicked()||M5.BtnC.wasClicked()||M5.BtnPWR.wasClicked()) doboot=true;
-      if(!M5.Power.isCharging()){ M5.Display.setBrightness(0);
-        unsigned long unplugAt=millis();
-        while(true){ M5.update();
-          if(M5.BtnA.wasClicked()||M5.BtnB.wasClicked()||M5.BtnC.wasClicked()||M5.BtnPWR.wasClicked()){doboot=true;break;}
-          if(M5.Power.isCharging()){ M5.Display.setBrightness(BRIGHT_VAL[brightnessLevel]);drawCharging();break; }
-          // 保險逾時：避免拔線瞬間讀值不穩、按鍵在螢幕全暗狀態下沒被偵測到，導致卡住開不了機
-          if(millis()-unplugAt>6000){ M5.Display.setBrightness(BRIGHT_VAL[brightnessLevel]); doboot=true; break; }
-          delay(100); }
-        if(doboot) break; }
-      delay(100); static unsigned long lu=0; if(millis()-lu>1000){drawCharging();lu=millis();}
+      if(M5.BtnA.wasClicked()||M5.BtnB.wasClicked()||M5.BtnC.wasClicked()||M5.BtnPWR.wasClicked()){ doboot=true; break; }
+      bool chg=M5.Power.isCharging();
+      int lvl=M5.Power.getBatteryLevel();
+      // 充飽（電量≥99%）持續 15 秒 → 自動關機
+      if(lvl>=99){ if(!fullSince) fullSince=millis(); if(millis()-fullSince>15000) doPoweroff(); }
+      else fullSince=0;
+      // 已拔線 → 持續 4 秒沒再充電就開機（螢幕保持亮，不再進黑畫面內迴圈避免卡死）
+      if(!chg){ if(!notChgSince) notChgSince=millis(); if(millis()-notChgSince>4000){ doboot=true; break; } }
+      else notChgSince=0;
+      if(millis()-lastRedraw>1000){ drawCharging(); lastRedraw=millis(); }
+      delay(80);
     }
+    M5.Display.setBrightness(BRIGHT_VAL[brightnessLevel]);
   }
 
   M5.Display.fillScreen(CLR_BG); M5.Display.setFont(nullptr); M5.Display.setTextSize(2);

@@ -360,8 +360,12 @@ wss.on('connection',ws=>{
           return;
         }
         if(!masterPilot.followers) masterPilot.followers=[];
-        // 監看模式：只看主控的跟隨者狀態，不加入 followers 清單
+        // 主控模式輔助：名字必須與主控者相同才可使用；只看跟隨者狀態、可傳訊息給塔台
         if(msg.monitor){
+          if((name||'').trim()!==(masterPilot.name||'').trim()){
+            ws.send(JSON.stringify({type:'follower_error',message:'主控模式輔助：名字需與主控者「'+masterPilot.name+'」相同'}));
+            return;
+          }
           conn.role='monitor'; conn.clientId='m_'+generateClientId(); conn.masterClientId=masterPilot.clientId; conn.followerName=name;
           ws.send(JSON.stringify({type:'monitor_registered', masterName:masterPilot.name, towerName:getTowerName(), towerType:getTowerType()}));
           monitorUpdate(masterPilot.clientId);
@@ -563,6 +567,18 @@ wss.on('connection',ws=>{
           if(f){ f.stage=stg; f.pending=false; }
         }
         monitorUpdate(conn.masterClientId);
+        break;
+      }
+
+      case 'monitor_to_tower_msg':{
+        // 主控模式輔助：以主控者名義傳自由訊息給塔台
+        if(conn.role!=='monitor') return;
+        const mp=pilots.get(conn.masterClientId);
+        const nm=(mp&&mp.name)||conn.followerName||'主控';
+        const txt=(msg.message||'').toString().slice(0,120);
+        if(!txt) return;
+        pushComm(nm,'pilot',txt);
+        toTower({type:'pilot_msg_to_tower', pilotName:nm, message:txt});
         break;
       }
 

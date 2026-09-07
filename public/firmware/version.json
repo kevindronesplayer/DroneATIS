@@ -1,5 +1,5 @@
 {
-  "version": 22,
-  "notes": "馬上降落固定倒數1分鐘；塔台改名/南北塔飛手端同步更新；晚加入且主控已降落者直接看降落＋時間；降落＋時間字放大",
+  "version": 23,
+  "notes": "頂列名字靠左、「更多」鍵加大好按；模式選擇畫面加關機鍵；充電到99%持續15秒自動關機（並修正充完電卡住）",
   "url": "https://droneatis-production.up.railway.app/firmware/esp32_pilot.bin"
 }

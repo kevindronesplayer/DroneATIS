@@ -428,6 +428,15 @@ function handle(msg){
   }
   else if(msg.type==='groups_update'){groups=msg.groups;renderGroups();renderPilots();}
   else if(msg.type==='session_ended'){showToast(`${msg.pilotName} 已結束作業`);notifyTower('飛手回報',`${msg.pilotName} 結束作業`);}
+  else if(msg.type==='pilot_msg_to_tower'){
+    notifyTower('飛手訊息', `${msg.pilotName}：${msg.message}`);
+    queueAlert(()=>{
+      const el=document.createElement('div');
+      el.style.cssText='position:fixed;top:60px;left:50%;transform:translateX(-50%);background:var(--ac);color:#000;padding:14px 20px;border-radius:12px;z-index:400;font-size:22px;font-weight:700;text-align:center;box-shadow:0 4px 20px rgba(0,212,255,.4);min-width:240px;max-width:92vw;cursor:pointer;';
+      el.innerHTML=`✈ ${escapeHtml(msg.pilotName)} 傳來訊息<br><span style="font-size:20px;font-weight:600">${escapeHtml(msg.message)}</span><br><span style="font-size:15px;font-weight:400;opacity:.7">點擊關閉</span>`;
+      return el;
+    },12000);
+  }
   else if(msg.type==='pilot_asking'){
     showAskAlert(msg.pilotName, msg.clientId, msg.askType);
     notifyTower('飛手詢問', `${msg.pilotName} ${msg.askType==='duration'?'詢問放行時長':'詢問機場狀況'}`);
