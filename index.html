@@ -337,6 +337,9 @@ let selectedCid=null; // 多人模式：底部發送區目前作用的飛手
 let inputArrows=[];
 let towerName=localStorage.getItem('towerName')||'';
 let towerType=localStorage.getItem('towerType')||'南塔';
+// 多塔台：每台一組固定識別碼，只看得到自己加入的飛手
+let towerId=localStorage.getItem('towerId');
+if(!towerId){ towerId='t_'+Date.now().toString(36)+'_'+Math.random().toString(36).slice(2,8); localStorage.setItem('towerId',towerId); }
 
 const STATUSES=['開機預備','可以起飛','待飛機進場','待飛機離場','多機進離','暫無機會','幾分鐘後有機會','馬上降落','降落'];
 
@@ -351,7 +354,7 @@ const ACK_MAP={
 function connect(){
   const wsProtocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
   ws=new WebSocket(`${wsProtocol}//${location.host}`);
-  ws.onopen=()=>{setDot(true);ws.send(JSON.stringify({type:'tower_hello',towerName:towerName,towerType:towerType}));};
+  ws.onopen=()=>{setDot(true);ws.send(JSON.stringify({type:'tower_hello',towerName:towerName,towerType:towerType,towerId:towerId}));};
   ws.onclose=()=>{setDot(false);setTimeout(connect,3000);};
   ws.onerror=()=>ws.close();
   ws.onmessage=e=>handle(JSON.parse(e.data));
@@ -869,7 +872,7 @@ document.getElementById('btnConfirmName').addEventListener('click',()=>{
   localStorage.setItem('towerType',towerType);
   updateNameBtn();
   // 重新連線以更新 towerType
-  if(ws&&ws.readyState===1) ws.send(JSON.stringify({type:'tower_hello',towerName,towerType}));
+  if(ws&&ws.readyState===1) ws.send(JSON.stringify({type:'tower_hello',towerName,towerType,towerId}));
   document.getElementById('nameModal').classList.remove('show');
 });
 function selectTowerType(type, save=true){
