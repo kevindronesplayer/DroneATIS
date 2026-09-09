@@ -36,8 +36,9 @@ function todayMidnight(){
   return dayStart+86400000-1-TZ_OFFSET_MS;
 }
 // 根據飛手名稱+今天日期，產生固定四碼序號
+// 日期用「台灣日期」，與 todayMidnight()/todayStr() 一致，避免 UTC 換日（台灣早上8點）時序號跳掉
 function dailyCodeForPilot(name){
-  const dateStr=new Date().toISOString().slice(0,10);
+  const dateStr=new Date().toLocaleDateString('en-CA',{timeZone:TZ}); // YYYY-MM-DD（台灣）
   const seed=name+dateStr; let hash=0;
   for(let i=0;i<seed.length;i++) hash=(hash*31+seed.charCodeAt(i))>>>0;
   let c=''; for(let i=0;i<4;i++){ c+=ARROWS[hash%4]; hash=Math.floor(hash/4); }

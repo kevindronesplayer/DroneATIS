@@ -1,5 +1,5 @@
 {
-  "version": 23,
-  "notes": "頂列名字靠左、「更多」鍵加大好按；模式選擇畫面加關機鍵；充電到99%持續15秒自動關機（並修正充完電卡住）",
+  "version": 24,
+  "notes": "頂列名字位置依時間字寬計算、不再被時間蓋住（過長自動裁切）；序號改用台灣日期，早上換日不會跳號",
   "url": "https://droneatis-production.up.railway.app/firmware/esp32_pilot.bin"
 }

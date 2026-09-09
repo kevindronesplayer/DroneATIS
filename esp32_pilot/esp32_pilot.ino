@@ -23,7 +23,7 @@
 #define GPS_RX_PIN    32   // Core2 PORT.A（外接I2C腳位，這裡改當UART用；訊號1=RXD）
 #define GPS_TX_PIN    33   // Core2 PORT.A（訊號2=TXD）
 #define GPS_BAUD      115200
-#define FW_VERSION    23
+#define FW_VERSION    24
 #define UPDATE_CHECK_URL "https://droneatis-production.up.railway.app/firmware/version.json"
 
 // ── NVS 儲存 ─────────────────────────────────────────────────────────────────
@@ -246,10 +246,14 @@ void drawTopBar(){
   fXs();
   M5.Display.setTextDatum(middle_left);
   M5.Display.setTextColor(CLR_WHITE);
-  M5.Display.drawString(getNowTime(),4,16);
-  // 名字靠左（緊接在時間後面），不置中，把右邊空間留給更大的「更多」鍵
+  String tnow=getNowTime();
+  M5.Display.drawString(tnow,4,16);
+  // 名字接在時間後面（用實際字寬算起點，才不會被時間蓋住），不置中
+  int nameX=4+M5.Display.textWidth(tnow)+14;
   M5.Display.setTextColor(CLR_ACCENT);
-  M5.Display.drawString(pilotName.substring(0,7),56,16);
+  M5.Display.setClipRect(nameX,0,184-nameX,32);          // 限制在時間與「更多」鍵之間，過長自動裁掉
+  M5.Display.drawString(pilotName,nameX,16);
+  M5.Display.clearClipRect();
   // 更多：加大按鍵、幾乎佔滿頂列高度，好按
   M5.Display.fillRoundRect(190,1,62,30,6,CLR_SURFACE); M5.Display.drawRoundRect(190,1,62,30,6,CLR_ACCENT);
   fSm(); M5.Display.setTextDatum(middle_center); M5.Display.setTextColor(CLR_WHITE);
