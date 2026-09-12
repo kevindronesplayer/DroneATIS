@@ -620,6 +620,7 @@ function fitComposerPad(){
 }
 // 只更新內容，不動訊息輸入框（pilots_update 時用）
 function syncComposer(){
+  bindComposerOnce(); // 發送區可能是自動選飛手時第一次出現（沒經過 selectPilot），事件要在這裡也綁一次
   const mc=document.getElementById('multiComposer');
   const p=pilots.find(x=>x.clientId===selectedCid);
   if(!p || !pilotsTabActive()){ mc.classList.remove('show'); fitComposerPad(); return; }
