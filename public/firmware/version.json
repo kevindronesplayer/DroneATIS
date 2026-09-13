@@ -1,5 +1,5 @@
 {
-  "version": 27,
-  "notes": "主控名字改用手機設定後會記住，下次開機沿用；斷線重連飛航公告/跑道不再被重置成空白",
+  "version": 28,
+  "notes": "點進機身改名畫面會顯示目前實際顯示的名字（含手機設定過的），機身重新命名後不會再被手機舊名字蓋回去",
   "url": "https://droneatis-production.up.railway.app/firmware/esp32_pilot.bin"
 }

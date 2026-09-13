@@ -419,8 +419,10 @@ setInterval(()=>{
     if(diff<=60 && diff>10 && !landing60Fired[p.clientId]){
       landing60Fired[p.clientId]=true;
       towerBeep(); notifyTower('降落倒數', p.name+' 還有1分鐘降落');
+      showToast('⏰ '+p.name+' 還有1分鐘降落');
     } else if(diff<=10 && diff>=0){
       towerBeep();
+      showToast('⏰ '+p.name+' 降落倒數 '+diff+' 秒');
     }
   });
 },1000);

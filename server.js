@@ -429,6 +429,8 @@ wss.on('connection',ws=>{
       case 'pilot_rename':{
         const pilot=pilots.get(conn.clientId); if(!pilot) return;
         pilot.name=msg.name;
+        pilot.displayName=''; // 機身重新命名，蓋掉手機主控輔助之前設定的顯示名字，避免舊名字繼續蓋回來
+        monitorUpdate(pilot.clientId);
         broadcastPilots();
         break;
       }

@@ -23,7 +23,7 @@
 #define GPS_RX_PIN    32   // Core2 PORT.A（外接I2C腳位，這裡改當UART用；訊號1=RXD）
 #define GPS_TX_PIN    33   // Core2 PORT.A（訊號2=TXD）
 #define GPS_BAUD      115200
-#define FW_VERSION    27
+#define FW_VERSION    28
 #define UPDATE_CHECK_URL "https://droneatis-production.up.railway.app/firmware/version.json"
 
 // ── NVS 儲存 ─────────────────────────────────────────────────────────────────
@@ -1441,6 +1441,7 @@ void onKeyboardConfirm(){
   if(kbTarget=="name"){ pilotName=kbBuffer; saveName(pilotName); currentScreen=SCR_WIFI_SCAN; startWifiScan(); }
   else if(kbTarget=="rename"){
     pilotName=kbBuffer; saveName(pilotName);
+    pilotDisplayName=""; saveDisplayName(""); // 機身重新命名，蓋掉手機主控輔助之前設定的顯示名字，避免又被蓋回去
     StaticJsonDocument<128> doc; doc["type"]=IS_FOLLOWER_CONN?"follower_rename":"pilot_rename"; doc["name"]=pilotName;
     String o; serializeJson(doc,o); wsClient.sendTXT(o);
     currentScreen=SCR_IDLE; drawIdle();
@@ -1473,8 +1474,8 @@ void handleTouch(){
   if(currentScreen==SCR_IDLE){
     // WiFi 狀態燈：點擊可重新選擇 WiFi
     if(tx>=250&&tx<=272&&ty<=30){ drawWifiChangeConfirm(); return; }
-    // 名字觸控改名（主控）
-    if(tx>=40&&tx<182&&ty<32&&pilotMode==MODE_MASTER){ kbBuffer=pilotName; kbHint="更改飛手名字（英文小寫）"; kbTarget="rename"; kbShift=false; kbPage=0; kbMaxLen=10; currentScreen=SCR_NAME_INPUT; drawKeyboard(); return; }
+    // 名字觸控改名（主控）：畫面現在顯示的是哪個名字（可能是手機主控輔助設定的），編輯就從那個開始，不要跳回舊的
+    if(tx>=40&&tx<182&&ty<32&&pilotMode==MODE_MASTER){ kbBuffer=pilotDisplayName.length()>0?pilotDisplayName:pilotName; kbHint="更改飛手名字（英文小寫）"; kbTarget="rename"; kbShift=false; kbPage=0; kbMaxLen=10; currentScreen=SCR_NAME_INPUT; drawKeyboard(); return; }
     // GPS
     if(tx>232&&tx<314&&ty>34&&ty<56){ if(pilotMode==MODE_MASTER){ gpsEnabled=!gpsEnabled; if(!gpsEnabled)gpsFixed=false; drawGpsBtn(); sendHeartbeat(); } }
     // 公告
