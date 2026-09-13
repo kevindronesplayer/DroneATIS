@@ -23,7 +23,7 @@
 #define GPS_RX_PIN    32   // Core2 PORT.A（外接I2C腳位，這裡改當UART用；訊號1=RXD）
 #define GPS_TX_PIN    33   // Core2 PORT.A（訊號2=TXD）
 #define GPS_BAUD      115200
-#define FW_VERSION    24
+#define FW_VERSION    25
 #define UPDATE_CHECK_URL "https://droneatis-production.up.railway.app/firmware/version.json"
 
 // ── NVS 儲存 ─────────────────────────────────────────────────────────────────
@@ -241,8 +241,10 @@ void drawBattery(){
   if(fw>0) M5.Display.fillRect(270,7,fw,18,bc);
 }
 
-void drawTopBar(){
-  M5.Display.fillRect(0,0,320,32,CLR_DARK);
+// 時鐘＋名字（共用：drawTopBar 整列重畫、updateClock 每秒局部重畫都要用同一套定位，
+// 否則 updateClock 只清時鐘那塊小範圍會把名字開頭吃掉，看起來像被時間擋住）
+void drawClockAndName(){
+  M5.Display.fillRect(0,0,190,32,CLR_DARK);
   fXs();
   M5.Display.setTextDatum(middle_left);
   M5.Display.setTextColor(CLR_WHITE);
@@ -254,6 +256,11 @@ void drawTopBar(){
   M5.Display.setClipRect(nameX,0,184-nameX,32);          // 限制在時間與「更多」鍵之間，過長自動裁掉
   M5.Display.drawString(pilotName,nameX,16);
   M5.Display.clearClipRect();
+}
+
+void drawTopBar(){
+  M5.Display.fillRect(0,0,320,32,CLR_DARK);
+  drawClockAndName();
   // 更多：加大按鍵、幾乎佔滿頂列高度，好按
   M5.Display.fillRoundRect(190,1,62,30,6,CLR_SURFACE); M5.Display.drawRoundRect(190,1,62,30,6,CLR_ACCENT);
   fSm(); M5.Display.setTextDatum(middle_center); M5.Display.setTextColor(CLR_WHITE);
@@ -1220,9 +1227,7 @@ void showEndMsg(){
 
 // ── 倒數更新 ──────────────────────────────────────────────────────────────────
 void updateClock(){
-  M5.Display.fillRect(0,0,100,32,CLR_DARK);
-  fXs(); M5.Display.setTextDatum(middle_left); M5.Display.setTextColor(CLR_WHITE);
-  M5.Display.drawString(getNowTime(),6,16);
+  drawClockAndName();
   if(currentScreen==SCR_COMMAND&&(landState==LAND_WAIT_ACK||landState==LAND_COUNTDOWN)&&landingTimeStr.length()>=4){
     int diff=landDiffSec();
     M5.Display.fillRect(162,110,158,28,CLR_BG);
@@ -1293,6 +1298,8 @@ void checkLandDoneHold(){
 void drawKeypad(){
   M5.Display.fillScreen(CLR_BG); M5.Display.fillRect(0,0,320,32,CLR_BG);
   M5.Display.setTextDatum(middle_center);
+  M5.Display.fillRoundRect(4,2,40,26,4,CLR_SURFACE); M5.Display.drawRoundRect(4,2,40,26,4,CLR_GRAY);
+  fSm(); M5.Display.setTextColor(CLR_WHITE); M5.Display.drawString("<",24,15);
   fXs(); M5.Display.setTextColor(CLR_AMBER); M5.Display.drawString("飛航公告號碼 (U+4碼)",160,10);
   String preview="U"+(keypadBuffer.length()>0?keypadBuffer:"____");
   fLg(); M5.Display.setTextColor(CLR_ACCENT); M5.Display.drawString(preview,160,36);
@@ -1310,6 +1317,11 @@ void drawKeypad(){
 }
 
 void handleKeypadTouch2(int tx,int ty){
+  if(tx>=4&&tx<=44&&ty>=2&&ty<=28){
+    keypadMode=KP_NONE;
+    if(currentScreen==SCR_COMMAND) drawCommand(); else { currentScreen=SCR_IDLE; drawIdle(); }
+    return;
+  }
   int keys[]={1,2,3,4,5,6,7,8,9,-1,0,-2};
   int kx=10,ky=58,kw=94,kh=40,gap=4;
   for(int i=0;i<12;i++){

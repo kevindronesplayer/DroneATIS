@@ -101,6 +101,10 @@ input[type=text]:focus,input[type=number]:focus{border-color:var(--ac);}
 <div class="page center-page" id="scrModeSelect">
   <div class="logo">DroneATIS</div>
   <div class="sub" id="modeSelName"></div>
+  <div class="mode-btn" id="btnModeMonitor" style="border-color:var(--tx2)">
+    <div class="t" style="color:var(--tx)">主控模式輔助</div>
+    <div class="d">名字需與主控者相同。看跟隨者狀態、傳自由訊息給塔台</div>
+  </div>
   <div class="mode-btn follower" id="btnModeView">
     <div class="t">跟隨模式</div>
     <div class="d">跟隨主控，僅顯示、不回應</div>
@@ -108,10 +112,6 @@ input[type=text]:focus,input[type=number]:focus{border-color:var(--ac);}
   <div class="mode-btn" id="btnModeGather" style="border-color:var(--am)">
     <div class="t" style="color:var(--am)">飛聚跟隨模式</div>
     <div class="d">跟隨主控，需回報（回報給主控者，不是塔台）</div>
-  </div>
-  <div class="mode-btn" id="btnModeMonitor" style="border-color:var(--tx2)">
-    <div class="t" style="color:var(--tx)">主控模式輔助</div>
-    <div class="d">名字需與主控者相同。看跟隨者狀態、傳自由訊息給塔台</div>
   </div>
   <button class="btn outline" id="btnModeBack">‹ 更改名字</button>
 </div>
@@ -124,6 +124,11 @@ input[type=text]:focus,input[type=number]:focus{border-color:var(--ac);}
     <div class="iconbtn" id="monMore">更多</div>
   </div>
   <div class="body">
+    <div class="notam-row" style="gap:8px;">
+      <span class="lbl" style="flex-shrink:0;">主控中文名</span>
+      <input type="text" id="monNameInput" placeholder="用手機輸入中文名稱" maxlength="10">
+      <button class="iconbtn" id="monNameSet" style="padding:8px 14px;font-size:14px;">設定</button>
+    </div>
     <div class="status-card" style="padding:16px">
       <div style="font-size:14px;color:var(--tx2)">主控目前狀態</div>
       <div class="headline" id="monMasterStatus" style="font-size:24px;margin-top:4px">—</div>
@@ -220,7 +225,7 @@ let landingTimeStr='', landingReason='';
 let ackPending=false, ackDeadline=0;
 let landState='none'; // none | wait_ack | countdown
 let immEndSec=null;   // 馬上降落：絕對倒數截止秒（當天秒數）
-let heartbeatTimer=null, clockTimer=null, reconnectTimer=null;
+let heartbeatTimer=null, clockTimer=null, reconnectTimer=null, connectTimeoutTimer=null;
 
 function $(id){return document.getElementById(id);}
 function showPage(id){document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));$(id).classList.add('active');}
@@ -236,11 +241,18 @@ function connect(){
   wsConnecting=true;
   const wsProtocol = location.protocol==='https:'?'wss:':'ws:';
   ws=new WebSocket(`${wsProtocol}//${location.host}`);
+  // 連線逾時保護：手機網路差時 WebSocket 可能卡在 connecting 不觸發 onopen/onclose/onerror 任何一個，
+  // 造成「按確認完全沒反應」；逾時就強制關閉重試，並讓使用者能再按一次
+  clearTimeout(connectTimeoutTimer);
+  connectTimeoutTimer=setTimeout(()=>{
+    if(wsConnecting){ wsConnecting=false; try{ws.close();}catch(e){} showToast('連線逾時，正在重試…'); scheduleReconnect(); }
+  },8000);
   ws.onopen=()=>{
+    clearTimeout(connectTimeoutTimer);
     wsConnecting=false; wsConnected=true; updateConnDot();
     send({type:'follower_register',name:pilotName,masterCode,gather:gatherMode,monitor:monitorMode});
   };
-  ws.onclose=()=>{ wsConnecting=false; wsConnected=false; updateConnDot(); scheduleReconnect(); };
+  ws.onclose=()=>{ clearTimeout(connectTimeoutTimer); wsConnecting=false; wsConnected=false; updateConnDot(); scheduleReconnect(); };
   ws.onerror=()=>{ try{ws.close();}catch(e){} };
   ws.onmessage=e=>{ let msg; try{msg=JSON.parse(e.data);}catch(err){return;} handle(msg); };
 }
@@ -262,6 +274,7 @@ function handle(msg){
     case 'monitor_registered':
       towerConnected=true; towerName=msg.towerName||'塔台'; towerTypeStr=msg.towerType||'南塔';
       $('monName').textContent='輔助：'+(msg.masterName||'主控');
+      $('monNameInput').value=msg.masterName||'';
       showPage('scrMonitor'); updateConnDot();
       startHeartbeat();
       break;
@@ -467,6 +480,7 @@ function escapeHtml(s){ return String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;'
 
 // ── 監看：主控的跟隨者狀態 ──────────────────────────────────────────
 function renderMonitor(msg){
+  if(document.activeElement!==$('monNameInput')) $('monNameInput').value=msg.masterName||'';
   const ms=(msg.lastCommType==='message'&&msg.lastMessage)?('訊息：'+msg.lastMessage)
     :(msg.hasCommand?(msg.masterStatus||'開機預備'):'等待塔台來訊');
   $('monMasterStatus').textContent=ms + (msg.landingTime?(' '+String(msg.landingTime).slice(0,4).replace(/(\d\d)(\d\d)/,'$1:$2')):'');
@@ -544,7 +558,10 @@ document.querySelectorAll('#scrFollowerCode .kp-btn').forEach(b=>b.addEventListe
 $('btnFollowerClr').addEventListener('click',()=>{ followerBuf=''; renderFollowerBuf(); });
 $('btnFollowerOk').addEventListener('click',()=>{
   if(followerBuf.length!==4){ showToast('請輸入4碼序號'); return; }
-  masterCode=followerBuf; connect();
+  masterCode=followerBuf;
+  if(wsConnecting){ showToast('連線中，請稍候…'); return; }
+  showToast('連線中…');
+  connect();
 });
 
 // ── 事件綁定：主畫面 ─────────────────────────────────────────────────
@@ -555,6 +572,12 @@ $('monMore').addEventListener('click',()=>showModal('moreModal'));
   const doSend=()=>{ const t=mi.value.trim(); if(!t){showToast('請輸入訊息');return;} send({type:'monitor_to_tower_msg',message:t}); mi.value=''; showToast('已傳給塔台'); };
   $('monMsgSend').addEventListener('click',doSend);
   mi.addEventListener('keydown',e=>{ if(e.key==='Enter') doSend(); });
+})();
+(function(){
+  const ni=$('monNameInput');
+  const doSet=()=>{ const t=ni.value.trim(); send({type:'monitor_set_name',name:t}); showToast(t?'已設定主控中文名':'已清除主控中文名'); };
+  $('monNameSet').addEventListener('click',doSet);
+  ni.addEventListener('keydown',e=>{ if(e.key==='Enter') doSet(); });
 })();
 $('btnCloseMore').addEventListener('click',()=>hideModal('moreModal'));
 $('btnBackToModeSel').addEventListener('click',()=>{

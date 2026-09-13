@@ -43,6 +43,10 @@ function dailyCodeForPilot(name){
   return c;
 }
 
+// 對外顯示用的名字：主控在 M5Stack 上只能輸入英文小寫，主控模式輔助（手機）可另外設定中文顯示名蓋過去，
+// 但識別／序號仍用原始 pilot.name，不受影響（避免改名後隔天序號跳掉或連不上）
+function dispName(p){ return (p&&p.displayName)||(p&&p.name)||''; }
+
 // 取得「這位飛手所屬塔台」的資訊（多塔台）；沒帶 pilot 或未歸屬 → 回全域值
 function getActiveTower(pilot){
   if(pilot&&pilot.ownerTowerName) return {tName:pilot.ownerTowerName,tType:pilot.ownerTowerType||towerTypeGlobal};
@@ -112,7 +116,7 @@ function toTower(data){ bcast(data,c=>c&&c.role==='tower'); }
 // ── 多塔台：每個塔台只看得到自己加入的飛手／自己建立的分類 ──────────
 // 有 towerId 的塔台：只看 ownerTowerId 等於自己的；沒 towerId（舊版快取頁）→ 看全部
 function ownedBy(item,towerId){ return !towerId || item.ownerTowerId===towerId; }
-function pilotSnapFor(towerId){ return Array.from(pilots.values()).filter(p=>ownedBy(p,towerId)).map(p=>({...p})); }
+function pilotSnapFor(towerId){ return Array.from(pilots.values()).filter(p=>ownedBy(p,towerId)).map(p=>({...p,name:dispName(p)})); }
 function groupSnapFor(towerId){ return Array.from(groups.entries()).filter(([id,g])=>ownedBy(g,towerId)).map(([id,g])=>({groupId:id,name:g.name,memberIds:g.memberIds})); }
 // 對每個已連線塔台，各送一份「只含它自己飛手」的 pilots_update / groups_update
 function broadcastPilots(){
@@ -166,7 +170,7 @@ function monitorUpdate(masterClientId){
   const mp=pilots.get(masterClientId); if(!mp) return;
   toMonitors(masterClientId,{
     type:'monitor_followers',
-    masterName:mp.name, masterStatus:mp.status||'開機預備',
+    masterName:dispName(mp), masterStatus:mp.status||'開機預備',
     landingTime:mp.landingTime||'', lastMessage:mp.lastMessage||'',
     lastCommType:mp.lastCommType||'status', hasCommand:!!mp.hasCommand,
     followers:(mp.followers||[]).map(f=>({name:f.name,gather:!!f.gather,stage:f.stage||'',pending:!!f.pending}))
@@ -184,7 +188,7 @@ function groupName(gid){ const g=groups.get(gid); return g?g.name:''; }
 // 對話紀錄：塔台發送的訊息/指令 + 飛手回報，供塔台「飛行記錄」頁面顯示
 function pushComm(pilotName,dir,text){
   let ownerTowerId=null;
-  for(const p of pilots.values()){ if(p.name===pilotName){ ownerTowerId=p.ownerTowerId||null; break; } }
+  for(const p of pilots.values()){ if(p.name===pilotName||dispName(p)===pilotName){ ownerTowerId=p.ownerTowerId||null; break; } }
   const entry={date:todayStr(),time:nowTimeStr(),pilotName,dir,text,ownerTowerId};
   commLog.push(entry);
   if(commLog.length>500) commLog.shift();
@@ -202,13 +206,13 @@ function applyStatus(pilot,status,landingTime){
   const {tName,tType}=getActiveTower(pilot);
   if(status==='可以起飛'){
     pilot.takeoffTime=new Date().toISOString();
-    flightLog.push({date:todayStr(),groupName:gn,pilotName:pilot.name,type:'takeoff',time:nowTimeStr(),rwy:pilot.rwy||'',towerName:tName,towerType:tType});
+    flightLog.push({date:todayStr(),groupName:gn,pilotName:dispName(pilot),type:'takeoff',time:nowTimeStr(),rwy:pilot.rwy||'',towerName:tName,towerType:tType});
   }
   if(status==='降落'){
-    flightLog.push({date:todayStr(),groupName:gn,pilotName:pilot.name,type:'landing',time:nowTimeStr(),rwy:pilot.rwy||'',towerName:tName,towerType:tType});
+    flightLog.push({date:todayStr(),groupName:gn,pilotName:dispName(pilot),type:'landing',time:nowTimeStr(),rwy:pilot.rwy||'',towerName:tName,towerType:tType});
     pilot.landingLocked=true; // 送出降落/馬上降落後鎖定，飛手回報降落前塔台不能再發其他指令/訊息給這個飛手
   }
-  pushComm(pilot.name,'tower',status+(landingTime?(' '+landingTime):''));
+  pushComm(dispName(pilot),'tower',status+(landingTime?(' '+landingTime):''));
   pilot.ackPending=true;
   pilot.ackStatus='pending'; // pending / ack / takeoff / landing_ack / landing_done
   pilot.ackDeadline=Date.now()+30000;
@@ -282,7 +286,7 @@ wss.on('connection',ws=>{
         if(pilot.groupId) updateGroupStatus(pilot.groupId,status,landingTime,immediate);
         else{
           if(!canSendToPilot(pilot,status)){
-            ws.send(JSON.stringify({type:'error',message:pilot.name+' 正在降落中，尚未回報，無法發送其他指令'}));
+            ws.send(JSON.stringify({type:'error',message:dispName(pilot)+' 正在降落中，尚未回報，無法發送其他指令'}));
             return;
           }
           applyStatus(pilot,status,landingTime);
@@ -310,7 +314,7 @@ wss.on('connection',ws=>{
         });
         console.log('[MSG] connection found:', found);
         if(!canSendToPilot(pilot,null)){
-          ws.send(JSON.stringify({type:'error',message:pilot.name+' 正在降落中，尚未回報，無法發送訊息'}));
+          ws.send(JSON.stringify({type:'error',message:dispName(pilot)+' 正在降落中，尚未回報，無法發送訊息'}));
           break;
         }
         const msgTime=nowTimeStr();
@@ -319,7 +323,7 @@ wss.on('connection',ws=>{
         pilot.lastCommType='message';
         pilot.hasCommand=true;
         pilot.ackPending=true; pilot.ackStatus='pending'; pilot.ackDeadline=Date.now()+30000;
-        pushComm(pilot.name,'tower',msg.message);
+        pushComm(dispName(pilot),'tower',msg.message);
         toPilot(msg.clientId,{type:'message',message:msg.message,time:msgTime});
         toFollowers(msg.clientId,{type:'message',message:msg.message,time:msgTime});
         markGatherPending(msg.clientId);
@@ -381,12 +385,13 @@ wss.on('connection',ws=>{
         if(!masterPilot.followers) masterPilot.followers=[];
         // 主控模式輔助：名字必須與主控者相同才可使用；只看跟隨者狀態、可傳訊息給塔台
         if(msg.monitor){
-          if((name||'').trim()!==(masterPilot.name||'').trim()){
-            ws.send(JSON.stringify({type:'follower_error',message:'主控模式輔助：名字需與主控者「'+masterPilot.name+'」相同'}));
+          const enteredName=(name||'').trim();
+          if(enteredName!==(masterPilot.name||'').trim() && enteredName!==(masterPilot.displayName||'').trim()){
+            ws.send(JSON.stringify({type:'follower_error',message:'主控模式輔助：名字需與主控者「'+dispName(masterPilot)+'」相同'}));
             return;
           }
           conn.role='monitor'; conn.clientId='m_'+generateClientId(); conn.masterClientId=masterPilot.clientId; conn.followerName=name;
-          ws.send(JSON.stringify({type:'monitor_registered', masterName:masterPilot.name, towerName:getTowerName(), towerType:getTowerType()}));
+          ws.send(JSON.stringify({type:'monitor_registered', masterName:dispName(masterPilot), towerName:getTowerName(), towerType:getTowerType()}));
           monitorUpdate(masterPilot.clientId);
           break;
         }
@@ -507,7 +512,15 @@ wss.on('connection',ws=>{
         const ackType=msg.ackType||'ack'; // ack / takeoff / landing_ack / landing_done
         pilot.ackPending = (ackType==='landing_ack'); // landing_ack 後還要等 landing_done
         pilot.ackStatus=ackType;
-        if(ackType==='landing_done'){ pilot.ackPending=false; pilot.landingLocked=false; pilot.landingReported=true; }
+        // 飛手回應（收到/已起飛/收到降落指令/降落完成）也記進飛行紀錄，帶回應時間
+        const ackLabelMap={ack:'已收到',takeoff:'已起飛',landing_ack:'收到降落指令',landing_done:'降落完成'};
+        pushComm(dispName(pilot),'pilot',ackLabelMap[ackType]||ackType);
+        if(ackType==='landing_done'){
+          pilot.ackPending=false; pilot.landingLocked=false; pilot.landingReported=true;
+          const gn=groupName(pilot.groupId);
+          const {tName,tType}=getActiveTower(pilot);
+          flightLog.push({date:todayStr(),groupName:gn,pilotName:dispName(pilot),type:'landing',time:nowTimeStr(),rwy:pilot.rwy||'',towerName:tName,towerType:tType});
+        }
         broadcastPilots();
         console.log('[ACK] master clientId:', conn.clientId, 'ackType:', ackType);
         let followerCount=0;
@@ -530,16 +543,16 @@ wss.on('connection',ws=>{
         const pilot=pilots.get(conn.clientId);
         if(pilot){
           const {tName,tType}=getActiveTower(pilot);
-          flightLog.push({date:todayStr(),groupName:groupName(pilot.groupId),pilotName:pilot.name,type:'session_end',time:nowTimeStr(),rwy:pilot.rwy||'',towerName:tName,towerType:tType});
-          pushComm(pilot.name,'tower','任務結束');
+          flightLog.push({date:todayStr(),groupName:groupName(pilot.groupId),pilotName:dispName(pilot),type:'session_end',time:nowTimeStr(),rwy:pilot.rwy||'',towerName:tName,towerType:tType});
+          pushComm(dispName(pilot),'tower','任務結束');
         }
-        toOwnerTower(conn.clientId,{type:'session_ended',pilotName:pilot?pilot.name:msg.pilotName});
+        toOwnerTower(conn.clientId,{type:'session_ended',pilotName:pilot?dispName(pilot):msg.pilotName});
         break;
       }
 
       case 'pilot_ask_status':{
         const pilot=pilots.get(conn.clientId);
-        const name=pilot?pilot.name:msg.pilotName;
+        const name=pilot?dispName(pilot):msg.pilotName;
         const askType=msg.askType==='duration'?'duration':'airport';
         pushComm(name,'pilot',askType==='duration'?'詢問放行時長':'詢問機場狀況');
         toOwnerTower(conn.clientId,{type:'pilot_asking',pilotName:name,clientId:conn.clientId,askType});
@@ -551,14 +564,14 @@ wss.on('connection',ws=>{
         if(!pilot) return;
         pilot.notam=msg.notam;
         const today=todayStr();
-        const hasStart=flightLog.some(r=>r.type==='notam_start'&&r.pilotName===pilot.name&&r.date===today);
+        const hasStart=flightLog.some(r=>r.type==='notam_start'&&r.pilotName===dispName(pilot)&&r.date===today);
         if(!hasStart){
           const {tName,tType}=getActiveTower(pilot);
-          flightLog.push({date:today,groupName:groupName(pilot.groupId),pilotName:pilot.name,type:'notam_start',time:nowTimeStr(),notam:msg.notam,rwy:pilot.rwy||'',towerName:tName,towerType:tType});
+          flightLog.push({date:today,groupName:groupName(pilot.groupId),pilotName:dispName(pilot),type:'notam_start',time:nowTimeStr(),notam:msg.notam,rwy:pilot.rwy||'',towerName:tName,towerType:tType});
         }
-        pushComm(pilot.name,'pilot','更新飛航公告: '+msg.notam);
+        pushComm(dispName(pilot),'pilot','更新飛航公告: '+msg.notam);
         broadcastPilots();
-        toOwnerTower(conn.clientId,{type:'pilot_notam_update',pilotName:pilot.name,clientId:conn.clientId,notam:msg.notam});
+        toOwnerTower(conn.clientId,{type:'pilot_notam_update',pilotName:dispName(pilot),clientId:conn.clientId,notam:msg.notam});
         toFollowers(conn.clientId,{type:'notam_update',notam:msg.notam});
         break;
       }
@@ -568,9 +581,9 @@ wss.on('connection',ws=>{
         if(!pilot) return;
         pilot.turnpoint={minutes:msg.minutes,viaNotam:!!msg.viaNotam,ts:Date.now()};
         pilot.arrived=false;
-        pushComm(pilot.name,'pilot','回報轉點'+(msg.viaNotam?'（公告轉點）':'')+'，約'+msg.minutes+'分鐘');
+        pushComm(dispName(pilot),'pilot','回報轉點'+(msg.viaNotam?'（公告轉點）':'')+'，約'+msg.minutes+'分鐘');
         broadcastPilots();
-        toOwnerTower(conn.clientId,{type:'pilot_turnpoint',pilotName:pilot.name,clientId:conn.clientId,minutes:msg.minutes,viaNotam:!!msg.viaNotam});
+        toOwnerTower(conn.clientId,{type:'pilot_turnpoint',pilotName:dispName(pilot),clientId:conn.clientId,minutes:msg.minutes,viaNotam:!!msg.viaNotam});
         break;
       }
 
@@ -589,11 +602,22 @@ wss.on('connection',ws=>{
         break;
       }
 
+      case 'monitor_set_name':{
+        // 主控模式輔助：用手機中文輸入法設定主控的中文顯示名（不影響原本序號/識別用的英文名）
+        if(conn.role!=='monitor') return;
+        const mp=pilots.get(conn.masterClientId); if(!mp) return;
+        const dn=(msg.name||'').toString().trim().slice(0,10);
+        mp.displayName=dn;
+        broadcastPilots();
+        monitorUpdate(conn.masterClientId);
+        break;
+      }
+
       case 'monitor_to_tower_msg':{
         // 主控模式輔助：以主控者名義傳自由訊息給塔台
         if(conn.role!=='monitor') return;
         const mp=pilots.get(conn.masterClientId);
-        const nm=(mp&&mp.name)||conn.followerName||'主控';
+        const nm=(mp&&dispName(mp))||conn.followerName||'主控';
         const txt=(msg.message||'').toString().slice(0,120);
         if(!txt) return;
         pushComm(nm,'pilot',txt);
@@ -606,9 +630,9 @@ wss.on('connection',ws=>{
         if(!pilot) return;
         pilot.turnpoint=null;
         pilot.arrived=true;
-        pushComm(pilot.name,'pilot','已就位');
+        pushComm(dispName(pilot),'pilot','已就位');
         broadcastPilots();
-        toOwnerTower(conn.clientId,{type:'pilot_arrived',pilotName:pilot.name,clientId:conn.clientId});
+        toOwnerTower(conn.clientId,{type:'pilot_arrived',pilotName:dispName(pilot),clientId:conn.clientId});
         break;
       }
 
@@ -623,10 +647,10 @@ wss.on('connection',ws=>{
         const gn=groupName(pilot.groupId);
         const {tName,tType}=getActiveTower(pilot);
         const ldTime=nowTimeStr().replace(':','');
-        flightLog.push({date:todayStr(),groupName:gn,pilotName:pilot.name,type:'landing',time:ldTime,rwy:pilot.rwy||'',towerName:tName,towerType:tType});
-        pushComm(pilot.name,'pilot','回報降落');
+        flightLog.push({date:todayStr(),groupName:gn,pilotName:dispName(pilot),type:'landing',time:ldTime,rwy:pilot.rwy||'',towerName:tName,towerType:tType});
+        pushComm(dispName(pilot),'pilot','回報降落');
         broadcastPilots();
-        toOwnerTower(conn.clientId,{type:'pilot_land_report',pilotName:pilot.name,clientId:conn.clientId});
+        toOwnerTower(conn.clientId,{type:'pilot_land_report',pilotName:dispName(pilot),clientId:conn.clientId});
         break;
       }
 

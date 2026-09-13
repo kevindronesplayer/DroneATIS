@@ -40,7 +40,6 @@ body{font-family:-apple-system,'Noto Sans TC',sans-serif;background:var(--bg);co
 .pilot-avatar .badge{position:absolute;bottom:0;right:0;width:16px;height:16px;border-radius:50%;border:2px solid var(--sf);}
 .pilot-info{flex:1;min-width:0;}
 .pilot-name{font-size:26px;font-weight:600;display:flex;align-items:center;gap:6px;}
-.grp-badge{font-size:26px;padding:1px 6px;border-radius:99px;background:var(--sf3);color:var(--tx2);}
 .pilot-sub{font-size:19px;color:var(--tx2);margin-top:1px;}
 .tag-row{display:flex;flex-direction:column;align-items:flex-end;gap:4px;margin-left:auto;flex-shrink:0;}
 .ack-tag{font-size:26px;font-weight:700;padding:2px 7px;border-radius:99px;flex-shrink:0;}
@@ -106,8 +105,10 @@ body{font-family:-apple-system,'Noto Sans TC',sans-serif;background:var(--bg);co
 .pilot-strip.ack-pending{border-left-color:var(--am);}
 .strip-row1{display:flex;align-items:center;gap:10px;cursor:pointer;}
 .strip-name{font-size:23px;font-weight:700;flex-shrink:0;min-width:66px;}
-.strip-status{flex:1;min-width:0;font-size:19px;color:var(--tx);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.strip-status{flex:1;min-width:0;font-size:19px;color:var(--tx);}
+.strip-status .strip-headline{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
 .strip-status .sub{font-size:14px;color:var(--tx2);}
+.strip-time{font-size:13px;color:var(--ac);margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
 .strip-tags{display:flex;gap:4px;flex-shrink:0;align-items:center;flex-wrap:wrap;justify-content:flex-end;max-width:44%;}
 .strip-row2{display:flex;align-items:center;gap:10px;margin-top:8px;font-size:13px;color:var(--tx2);overflow-x:auto;white-space:nowrap;scrollbar-width:none;}
 .strip-row2::-webkit-scrollbar{width:0;height:0;}
@@ -116,7 +117,6 @@ body{font-family:-apple-system,'Noto Sans TC',sans-serif;background:var(--bg);co
 .strip-row3{margin-top:6px;font-size:13px;color:var(--ac);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
 .strip-row3:empty{display:none;}
 .strip-meta{display:inline-flex;align-items:center;gap:10px;}
-.strip-tt{font-weight:700;color:var(--ac);background:rgba(0,212,255,.14);border-radius:99px;padding:3px 9px;}
 .strip-loc{font-weight:700;background:rgba(0,230,118,.16);color:var(--gr);border-radius:99px;padding:3px 10px;text-decoration:none;}
 .strip-loc.off{background:var(--sf3);color:var(--tx2);font-weight:400;}
 .multi-composer{position:fixed;bottom:0;left:0;right:0;background:var(--sf);border-top:2px solid var(--ac);padding:10px 12px 16px;z-index:140;display:none;flex-direction:column;gap:8px;max-height:44vh;overflow-y:auto;box-shadow:0 -6px 20px rgba(0,0,0,.35);}
@@ -503,35 +503,33 @@ function renderPilots(){
 }
 
 // ── 多人模式：上方飛手狀態橫條 + 底部發送區 ─────────────────────────
+// 右邊狀態一次只顯示一個，優先序：降落鎖定 > 回應狀態 > 轉點/就位（避免同時擠出「公告轉點」+「已起飛」）
 function stripTagsHTML(p){
+  if(p.landingLocked) return `<span class="ack-tag land">🔒降落</span>`;
   const ackInfo=ACK_MAP[p.ackStatus]||null;
+  if(ackInfo) return `<span class="ack-tag ${ackInfo[0]}">${ackInfo[1]}</span>`;
   const tpInfo=p.turnpoint?(p.turnpoint.viaNotam?`公告轉點 ${p.turnpoint.minutes}分`:`轉點 ${p.turnpoint.minutes}分`):(p.arrived?'已就位':null);
-  const grp=groups.find(g=>g.groupId===p.groupId);
-  let t='';
-  if(grp) t+=`<span class="grp-badge">${escapeHtml(grp.name)}</span>`;
-  if(tpInfo) t+=`<span class="ack-tag land">${tpInfo}</span>`;
-  if(ackInfo) t+=`<span class="ack-tag ${ackInfo[0]}">${ackInfo[1]}</span>`;
-  if(p.landingLocked) t+=`<span class="ack-tag land">🔒降落</span>`;
-  return t;
+  if(tpInfo) return `<span class="ack-tag land">${tpInfo}</span>`;
+  return '';
 }
+// 狀態文字下面加一行發送時間（跟著訊息內容走，不要跟位置擠在一起被截斷）
 function stripStatusHTML(p){
-  return `${escapeHtml(pilotHeadline(p))}<span class="sub"> · ${p.battery??'—'}%</span>`;
-}
-// 發送時間 + 位置放第二行（第一行太窄會被截掉/擋住）
-function stripMetaHTML(p){
   const tt = p.lastMessageTime
-    ? `<span class="strip-tt">🕐 塔台 ${escapeHtml(p.lastMessageTime)}</span>`
-    : `<span class="strip-tt" style="background:var(--sf3);color:var(--tx2);font-weight:400">🕐 尚未發訊</span>`;
-  const loc = (p.gps===true && p.lat && p.lng)
+    ? `<div class="strip-time">🕐 塔台 ${escapeHtml(p.lastMessageTime)} 發送</div>`
+    : '';
+  return `<div class="strip-headline">${escapeHtml(pilotHeadline(p))}<span class="sub"> · ${p.battery??'—'}%</span></div>${tt}`;
+}
+function stripMetaHTML(p){
+  return (p.gps===true && p.lat && p.lng)
     ? `<a class="strip-loc" href="https://www.google.com/maps?q=${p.lat},${p.lng}&z=17" target="_blank" rel="noopener" onclick="event.stopPropagation()">📍 位置</a>`
     : `<span class="strip-loc off">📍 ${p.gps==='searching'?'定位中':'無位置'}</span>`;
-  return tt+loc;
 }
+// 飛航公告放最前面，定位放最後面
 function stripRow2HTML(p){
-  return `<span class="strip-meta">${stripMetaHTML(p)}</span>`
-    +`<span>飛航公告 <b style="color:${p.notam?'var(--am)':'var(--tx2)'}">${escapeHtml(p.notam||'未設定')}</b></span>`
+  return `<span>飛航公告 <b style="color:${p.notam?'var(--am)':'var(--tx2)'}">${escapeHtml(p.notam||'未設定')}</b></span>`
     +`<span>跑道 RWY <input class="strip-rwy" data-cid="${p.clientId}" inputmode="numeric" maxlength="2" value="${escapeHtml((p.rwy||'').replace('RWY',''))}" style="width:44px;letter-spacing:2px"></span>`
-    +`<span>分類 <select class="strip-grp" data-cid="${p.clientId}"><option value="">未分類</option>${groups.map(g=>`<option value="${g.groupId}" ${p.groupId===g.groupId?'selected':''}>${escapeHtml(g.name)}</option>`).join('')}</select></span>`;
+    +`<span>分類 <select class="strip-grp" data-cid="${p.clientId}"><option value="">未分類</option>${groups.map(g=>`<option value="${g.groupId}" ${p.groupId===g.groupId?'selected':''}>${escapeHtml(g.name)}</option>`).join('')}</select></span>`
+    +`<span class="strip-meta">${stripMetaHTML(p)}</span>`;
 }
 function stripRow3HTML(p){
   return (p.followers&&p.followers.length)?`👥 跟隨: ${escapeHtml(p.followers.map(f=>f.name).join(', '))}`:'';

@@ -1,5 +1,5 @@
 {
-  "version": 24,
-  "notes": "頂列名字位置依時間字寬計算、不再被時間蓋住（過長自動裁切）；序號改用台灣日期，早上換日不會跳號",
+  "version": 25,
+  "notes": "修正名字仍被時鐘吃掉的問題（每秒重畫時鐘忘了一起重畫名字）；飛航公告輸入畫面加上返回鍵",
   "url": "https://droneatis-production.up.railway.app/firmware/esp32_pilot.bin"
 }
