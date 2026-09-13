@@ -1,5 +1,5 @@
 {
-  "version": 26,
-  "notes": "手機主控模式輔助設定的主控名字，會同步更新到頂列顯示",
+  "version": 27,
+  "notes": "主控名字改用手機設定後會記住，下次開機沿用；斷線重連飛航公告/跑道不再被重置成空白",
   "url": "https://droneatis-production.up.railway.app/firmware/esp32_pilot.bin"
 }

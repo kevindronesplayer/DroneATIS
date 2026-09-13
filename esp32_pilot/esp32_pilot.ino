@@ -23,7 +23,7 @@
 #define GPS_RX_PIN    32   // Core2 PORT.A（外接I2C腳位，這裡改當UART用；訊號1=RXD）
 #define GPS_TX_PIN    33   // Core2 PORT.A（訊號2=TXD）
 #define GPS_BAUD      115200
-#define FW_VERSION    26
+#define FW_VERSION    27
 #define UPDATE_CHECK_URL "https://droneatis-production.up.railway.app/firmware/version.json"
 
 // ── NVS 儲存 ─────────────────────────────────────────────────────────────────
@@ -210,12 +210,18 @@ void loadPrefs(){
   savedSSID     = prefs.getString("ssid","");
   savedPassword = prefs.getString("pass","");
   pilotName     = prefs.getString("name","");
+  pilotDisplayName = prefs.getString("dispname","");
   prefs.end();
 }
 void saveWifi(String ssid, String pass){
   prefs.begin("datis",false);
   prefs.putString("ssid",ssid);
   prefs.putString("pass",pass);
+  prefs.end();
+}
+void saveDisplayName(String name){
+  prefs.begin("datis",false);
+  prefs.putString("dispname",name);
   prefs.end();
 }
 void saveName(String name){
@@ -816,6 +822,9 @@ void webSocketEvent(WStype_t wsType, uint8_t* payload, size_t length){
       else if(type=="tower_connected"){
         towerConnected=true;
         groupName=doc["groupName"]|""; towerName=doc["towerName"]|"塔台"; towerType=doc["towerType"]|"南塔";
+        // 斷線重連（WiFi掉線/重開機）沿用伺服器記住的飛航公告/跑道，不要被重設成空白
+        if(doc.containsKey("notam")) notamCode=doc["notam"]|"";
+        if(doc.containsKey("rwy")) rwyDir=doc["rwy"]|"";
         currentScreen=SCR_IDLE; drawIdle(); beep3();
       }
       else if(type=="tower_info"){ // 塔台改南北塔或名字
@@ -824,6 +833,7 @@ void webSocketEvent(WStype_t wsType, uint8_t* payload, size_t length){
       }
       else if(type=="name_update"){ // 手機「主控模式輔助」設定的顯示名字（只換畫面顯示，不動 pilotName 本身）
         pilotDisplayName=doc["name"]|"";
+        saveDisplayName(pilotDisplayName); // 記住，下次開機就直接用這個名字
         if(currentScreen==SCR_IDLE||currentScreen==SCR_COMMAND) updateClock();
       }
       else if(type=="command"||type=="follower_sync"){

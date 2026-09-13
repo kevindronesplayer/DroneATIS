@@ -276,7 +276,7 @@ wss.on('connection',ws=>{
         // 用「執行這次加入」的那台塔台的名字/類型（多塔台時不能抓到別台）
         const tName=found.ownerTowerName; const tType=found.ownerTowerType;
         broadcastPilots();
-        toPilot(found.clientId,{type:'tower_connected',groupName:groupName(found.groupId),towerName:tName,towerType:tType});
+        toPilot(found.clientId,{type:'tower_connected',groupName:groupName(found.groupId),towerName:tName,towerType:tType,notam:found.notam||'',rwy:found.rwy||''});
         break;
       }
 
@@ -476,7 +476,7 @@ wss.on('connection',ws=>{
           // 如果之前已有塔台配對，自動重新發送 tower_connected，不需要塔台重新輸入序號
           if(wasTowerConnected){
             const {tName,tType}=getActiveTower(ep);
-            toPilot(clientId,{type:'tower_connected',groupName:groupName(ep.groupId),towerName:tName,towerType:tType,reconnect:true});
+            toPilot(clientId,{type:'tower_connected',groupName:groupName(ep.groupId),towerName:tName,towerType:tType,reconnect:true,notam:ep.notam||'',rwy:ep.rwy||''});
           }
         } else {
           // 全新飛手

@@ -410,10 +410,12 @@ function landDeadlineSecs(p){
 }
 setInterval(()=>{
   pilots.forEach(p=>{
-    if(p.ackStatus!=='landing_ack'){ delete landing60Fired[p.clientId]; delete immDeadline[p.clientId]; return; }
+    // 降落已回報完成 → 這輪倒數結束，清掉狀態讓下一次降落能重新提醒
+    if(p.ackStatus==='landing_done'){ delete landing60Fired[p.clientId]; delete immDeadline[p.clientId]; return; }
     const deadline=landDeadlineSecs(p); if(deadline==null) return;
     let diff=deadline-nowTotalSecs();
     if(diff<-43200) diff+=86400;
+    if(diff<-15){ delete landing60Fired[p.clientId]; delete immDeadline[p.clientId]; return; } // 時間已過太久，不用再叫
     if(diff<=60 && diff>10 && !landing60Fired[p.clientId]){
       landing60Fired[p.clientId]=true;
       towerBeep(); notifyTower('降落倒數', p.name+' 還有1分鐘降落');
