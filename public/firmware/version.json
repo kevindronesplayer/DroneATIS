@@ -1,5 +1,5 @@
 {
-  "version": 25,
-  "notes": "修正名字仍被時鐘吃掉的問題（每秒重畫時鐘忘了一起重畫名字）；飛航公告輸入畫面加上返回鍵",
+  "version": 26,
+  "notes": "手機主控模式輔助設定的主控名字，會同步更新到頂列顯示",
   "url": "https://droneatis-production.up.railway.app/firmware/esp32_pilot.bin"
 }

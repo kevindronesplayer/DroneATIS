@@ -127,10 +127,11 @@ function broadcastGroups(){
   wss.clients.forEach(ws=>{ const c=connections.get(ws);
     if(c&&c.role==='tower'&&ws.readyState===1) ws.send(JSON.stringify({type:'groups_update',groups:groupSnapFor(c.towerId)})); });
 }
-// 只送給「擁有這位飛手」的塔台（找不到擁有者就送全部，過渡期）
+// 只送給「擁有這位飛手」的塔台（找不到擁有者就送全部，過渡期／飛手還沒被任何塔台加入時）
 function toOwnerTower(pilotClientId,data){
   const p=pilots.get(pilotClientId);
   const owner=p&&p.ownerTowerId;
+  if(!owner){ bcast(data,c=>c&&c.role==='tower'); return; }
   bcast(data,c=>c&&c.role==='tower'&&(!c.towerId||c.towerId===owner));
 }
 function getTowerName(){ return towerNameGlobal; }
@@ -192,7 +193,7 @@ function pushComm(pilotName,dir,text){
   const entry={date:todayStr(),time:nowTimeStr(),pilotName,dir,text,ownerTowerId};
   commLog.push(entry);
   if(commLog.length>500) commLog.shift();
-  bcast({type:'comm_log_add',entry},c=>c&&c.role==='tower'&&(!c.towerId||c.towerId===ownerTowerId));
+  bcast({type:'comm_log_add',entry},c=>c&&c.role==='tower'&&(!ownerTowerId||!c.towerId||c.towerId===ownerTowerId));
 }
 
 function applyStatus(pilot,status,landingTime){
@@ -387,7 +388,8 @@ wss.on('connection',ws=>{
         if(msg.monitor){
           const enteredName=(name||'').trim();
           if(enteredName!==(masterPilot.name||'').trim() && enteredName!==(masterPilot.displayName||'').trim()){
-            ws.send(JSON.stringify({type:'follower_error',message:'主控模式輔助：名字需與主控者「'+dispName(masterPilot)+'」相同'}));
+            // 不透露主控實際名字，避免被用來猜測/確認主控身分
+            ws.send(JSON.stringify({type:'follower_error',message:'主控模式輔助：名字與主控者不符'}));
             return;
           }
           conn.role='monitor'; conn.clientId='m_'+generateClientId(); conn.masterClientId=masterPilot.clientId; conn.followerName=name;
@@ -603,13 +605,14 @@ wss.on('connection',ws=>{
       }
 
       case 'monitor_set_name':{
-        // 主控模式輔助：用手機中文輸入法設定主控的中文顯示名（不影響原本序號/識別用的英文名）
+        // 主控模式輔助：用手機輸入法設定主控的顯示名（不影響原本序號/識別用的名字）
         if(conn.role!=='monitor') return;
         const mp=pilots.get(conn.masterClientId); if(!mp) return;
         const dn=(msg.name||'').toString().trim().slice(0,10);
         mp.displayName=dn;
         broadcastPilots();
         monitorUpdate(conn.masterClientId);
+        toPilot(conn.masterClientId,{type:'name_update',name:dispName(mp)});
         break;
       }
 

@@ -396,6 +396,33 @@ function notifyTower(title, body){
   try{ if(window.Notification && Notification.permission==='default') Notification.requestPermission(); }catch(e){}
 },{once:true}));
 
+// ── 降落倒數提醒：還剩1分鐘叫一次，剩10秒以內每秒叫一次 ──────────────────
+// 「馬上降落」的絕對截止時間伺服器不會回傳，塔台自己在送出當下記一份（clientId -> 當天總秒數）
+let immDeadline={}, landing60Fired={};
+function nowTotalSecs(){ const d=new Date(); return d.getHours()*3600+d.getMinutes()*60+d.getSeconds(); }
+function landDeadlineSecs(p){
+  if(immDeadline[p.clientId]!=null) return immDeadline[p.clientId];
+  if(!p.landingTime||p.landingTime.length<4) return null;
+  const lh=parseInt(p.landingTime.slice(0,2),10), lm=parseInt(p.landingTime.slice(2,4),10);
+  if(isNaN(lh)||isNaN(lm)) return null;
+  let s=lh*3600+lm*60-1; if(s<0) s+=86400;
+  return s;
+}
+setInterval(()=>{
+  pilots.forEach(p=>{
+    if(p.ackStatus!=='landing_ack'){ delete landing60Fired[p.clientId]; delete immDeadline[p.clientId]; return; }
+    const deadline=landDeadlineSecs(p); if(deadline==null) return;
+    let diff=deadline-nowTotalSecs();
+    if(diff<-43200) diff+=86400;
+    if(diff<=60 && diff>10 && !landing60Fired[p.clientId]){
+      landing60Fired[p.clientId]=true;
+      towerBeep(); notifyTower('降落倒數', p.name+' 還有1分鐘降落');
+    } else if(diff<=10 && diff>=0){
+      towerBeep();
+    }
+  });
+},1000);
+
 function handle(msg){
   if(msg.type==='tower_state'){
     groups=msg.groups;   // 先設定 groups
@@ -503,11 +530,12 @@ function renderPilots(){
 }
 
 // ── 多人模式：上方飛手狀態橫條 + 底部發送區 ─────────────────────────
-// 右邊狀態一次只顯示一個，優先序：降落鎖定 > 回應狀態 > 轉點/就位（避免同時擠出「公告轉點」+「已起飛」）
+// 右邊狀態一次只顯示一個，優先序：回應狀態（等待回應/收到降落指令/已降落…）> 降落鎖定 > 轉點/就位
+// 回應狀態要優先，降落過程才會先顯示「收到降落指令」、飛手回報降落後才換成「已降落」，而不是整段被鎖定圖示蓋掉
 function stripTagsHTML(p){
-  if(p.landingLocked) return `<span class="ack-tag land">🔒降落</span>`;
   const ackInfo=ACK_MAP[p.ackStatus]||null;
   if(ackInfo) return `<span class="ack-tag ${ackInfo[0]}">${ackInfo[1]}</span>`;
+  if(p.landingLocked) return `<span class="ack-tag land">🔒降落</span>`;
   const tpInfo=p.turnpoint?(p.turnpoint.viaNotam?`公告轉點 ${p.turnpoint.minutes}分`:`轉點 ${p.turnpoint.minutes}分`):(p.arrived?'已就位':null);
   if(tpInfo) return `<span class="ack-tag land">${tpInfo}</span>`;
   return '';
@@ -526,7 +554,7 @@ function stripMetaHTML(p){
 }
 // 飛航公告放最前面，定位放最後面
 function stripRow2HTML(p){
-  return `<span>飛航公告 <b style="color:${p.notam?'var(--am)':'var(--tx2)'}">${escapeHtml(p.notam||'未設定')}</b></span>`
+  return `<span style="font-size:16px">飛航公告 <b style="color:${p.notam?'var(--am)':'var(--tx2)'}">${escapeHtml(p.notam||'未設定')}</b></span>`
     +`<span>跑道 RWY <input class="strip-rwy" data-cid="${p.clientId}" inputmode="numeric" maxlength="2" value="${escapeHtml((p.rwy||'').replace('RWY',''))}" style="width:44px;letter-spacing:2px"></span>`
     +`<span>分類 <select class="strip-grp" data-cid="${p.clientId}"><option value="">未分類</option>${groups.map(g=>`<option value="${g.groupId}" ${p.groupId===g.groupId?'selected':''}>${escapeHtml(g.name)}</option>`).join('')}</select></span>`
     +`<span class="strip-meta">${stripMetaHTML(p)}</span>`;
@@ -658,6 +686,8 @@ function handleStatusAction(cid,status){
   // 馬上降落：飛手端收到指令後自行倒數 1 分鐘（避免塔台/飛手時鐘不同步）
   if(status==='馬上降落'){
     send({type:'tower_command',clientId:cid,status:'降落',landingTime:null,immediate:true});
+    // 塔台自己也記一份倒數截止秒，用來在還剩1分鐘/10秒內提醒（伺服器不會回傳這個絕對時間）
+    immDeadline[cid]=(nowTotalSecs()+60)%86400; landing60Fired[cid]=false;
     showToast('馬上降落 → 收到後倒數1分鐘');
     markSelected(cid,status);
     return;
@@ -712,6 +742,7 @@ document.getElementById('btnLandSend').addEventListener('click',()=>{
   }
   if(pendingLandCid){
     send({type:'tower_command',clientId:pendingLandCid,status:'降落',landingTime:val});
+    delete immDeadline[pendingLandCid]; landing60Fired[pendingLandCid]=false; // 改用明確時間，不再套用馬上降落的絕對截止秒
     showToast('降落指令已發送：'+val);
     const cid2=pendingLandCid; pendingLandCid=null;
     setTimeout(()=>markSelected(cid2,'降落'),100);

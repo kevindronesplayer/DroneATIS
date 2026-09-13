@@ -85,6 +85,8 @@ input[type=text]:focus,input[type=number]:focus{border-color:var(--ac);}
 .modal h3{font-size:19px;color:var(--ac);text-align:center;}
 .modal .row{display:flex;gap:10px;}
 .modal .row .btn{flex:1;max-width:none;}
+#moreModal h3{font-size:16px;}
+#moreModal .btn{font-size:16px;padding:13px 20px;}
 </style>
 </head>
 <body>
@@ -125,8 +127,8 @@ input[type=text]:focus,input[type=number]:focus{border-color:var(--ac);}
   </div>
   <div class="body">
     <div class="notam-row" style="gap:8px;">
-      <span class="lbl" style="flex-shrink:0;">主控中文名</span>
-      <input type="text" id="monNameInput" placeholder="用手機輸入中文名稱" maxlength="10">
+      <span class="lbl" style="flex-shrink:0;">主控名字</span>
+      <input type="text" id="monNameInput" placeholder="用手機輸入名稱" maxlength="10">
       <button class="iconbtn" id="monNameSet" style="padding:8px 14px;font-size:14px;">設定</button>
     </div>
     <div class="status-card" style="padding:16px">
@@ -575,7 +577,7 @@ $('monMore').addEventListener('click',()=>showModal('moreModal'));
 })();
 (function(){
   const ni=$('monNameInput');
-  const doSet=()=>{ const t=ni.value.trim(); send({type:'monitor_set_name',name:t}); showToast(t?'已設定主控中文名':'已清除主控中文名'); };
+  const doSet=()=>{ const t=ni.value.trim(); send({type:'monitor_set_name',name:t}); showToast(t?'已設定主控名字':'已清除主控名字'); };
   $('monNameSet').addEventListener('click',doSet);
   ni.addEventListener('keydown',e=>{ if(e.key==='Enter') doSet(); });
 })();

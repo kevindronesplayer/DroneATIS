@@ -23,7 +23,7 @@
 #define GPS_RX_PIN    32   // Core2 PORT.A（外接I2C腳位，這裡改當UART用；訊號1=RXD）
 #define GPS_TX_PIN    33   // Core2 PORT.A（訊號2=TXD）
 #define GPS_BAUD      115200
-#define FW_VERSION    25
+#define FW_VERSION    26
 #define UPDATE_CHECK_URL "https://droneatis-production.up.railway.app/firmware/version.json"
 
 // ── NVS 儲存 ─────────────────────────────────────────────────────────────────
@@ -31,6 +31,8 @@ Preferences prefs;
 String savedSSID     = "";
 String savedPassword = "";
 String pilotName     = "";
+// 手機「主控模式輔助」可另外設定顯示名字（可中文）；只影響畫面顯示，不影響序號/重連用的 pilotName
+String pilotDisplayName = "";
 
 // ── WebSocket ─────────────────────────────────────────────────────────────────
 WebSocketsClient wsClient;
@@ -254,7 +256,7 @@ void drawClockAndName(){
   int nameX=4+M5.Display.textWidth(tnow)+14;
   M5.Display.setTextColor(CLR_ACCENT);
   M5.Display.setClipRect(nameX,0,184-nameX,32);          // 限制在時間與「更多」鍵之間，過長自動裁掉
-  M5.Display.drawString(pilotName,nameX,16);
+  M5.Display.drawString(pilotDisplayName.length()>0?pilotDisplayName:pilotName,nameX,16);
   M5.Display.clearClipRect();
 }
 
@@ -819,6 +821,10 @@ void webSocketEvent(WStype_t wsType, uint8_t* payload, size_t length){
       else if(type=="tower_info"){ // 塔台改南北塔或名字
         towerName=doc["towerName"]|towerName; towerType=doc["towerType"]|towerType;
         if(currentScreen==SCR_IDLE) drawIdle();
+      }
+      else if(type=="name_update"){ // 手機「主控模式輔助」設定的顯示名字（只換畫面顯示，不動 pilotName 本身）
+        pilotDisplayName=doc["name"]|"";
+        if(currentScreen==SCR_IDLE||currentScreen==SCR_COMMAND) updateClock();
       }
       else if(type=="command"||type=="follower_sync"){
         showingMessage=false;
