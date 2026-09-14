@@ -2,8 +2,35 @@ const http = require('http');
 const fs   = require('fs');
 const path = require('path');
 const { WebSocketServer } = require('ws');
+const webpush = require('web-push');
 
 const PORT = process.env.PORT || 3000;
+
+// Web Push：App 完全關閉時也能跳系統通知，靠的是瀏覽器的推播服務（不是我們的 WebSocket）。
+// 私鑰理論上該放環境變數，但這個專案目前沒有其他 env var 基礎設施、也沒有金流等高敏感資料，
+// 先直接內嵌求簡單；外洩頂多是有人能冒用這組 VAPID 身分發推播，風險可接受。
+const VAPID_PUBLIC_KEY  = process.env.VAPID_PUBLIC_KEY  || 'BNbeQAwE4neuGbmtseJBX87o5BtRH5fonY2NHQVcQhy26Ow6QhmLXFOCxTLCgeHvWPROrBv4-K-oyVbx7OhaV54';
+const VAPID_PRIVATE_KEY = process.env.VAPID_PRIVATE_KEY || 'CFz79rJxzCNT4uLVQ9KtBpg-MUaPeXCTpvM4y3q8jWE';
+webpush.setVapidDetails('mailto:droneatis@example.com', VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY);
+// towerId -> Map<endpoint, subscription>；純記憶體保存，伺服器重啟就會清空，
+// 塔台網頁每次連線都會重送一次訂閱，所以重啟後只要重開一次頁面就會自動補回來
+const pushSubs = new Map();
+function pushToTower(towerId, payload){
+  const subs = pushSubs.get(towerId); if(!subs || !subs.size) return;
+  const body = JSON.stringify(payload);
+  for(const [endpoint, sub] of subs){
+    webpush.sendNotification(sub, body).catch(err=>{
+      if(err.statusCode===404 || err.statusCode===410) subs.delete(endpoint); // 訂閱已失效（解除安裝/清資料）
+    });
+  }
+}
+// 跟 toOwnerTower 同一套「找不到擁有者就送全部」規則，維持一致
+function pushToOwnerTower(pilotClientId, payload){
+  const p=pilots.get(pilotClientId);
+  const owner=p&&p.ownerTowerId;
+  if(!owner){ for(const tid of pushSubs.keys()) pushToTower(tid, payload); return; }
+  pushToTower(owner, payload);
+}
 
 const pilots = new Map();
 const groups = new Map();
@@ -91,6 +118,10 @@ const server = http.createServer((req,res)=>{
     const date=todayStr().replace(/\//g,'-');
     res.writeHead(200,{'Content-Type':'text/plain;charset=utf-8','Content-Disposition':`attachment;filename="flight-log-${date}.txt"`});
     res.end('\uFEFF'+txt); return;
+  }
+  if(req.url==='/vapid-public-key'){
+    res.writeHead(200,{'Content-Type':'text/plain'});
+    res.end(VAPID_PUBLIC_KEY); return;
   }
   let fp=path.join(__dirname,'public',req.url==='/'?'index.html':req.url);
   const mime={'.html':'text/html','.js':'text/javascript','.css':'text/css','.json':'application/json','.bin':'application/octet-stream','.png':'image/png','.svg':'image/svg+xml','.ico':'image/x-icon','.webmanifest':'application/manifest+json'};
@@ -262,6 +293,16 @@ wss.on('connection',ws=>{
         if(nameChanged||typeChanged){
           bcast({type:'tower_info',towerName:towerNameGlobal,towerType:towerTypeGlobal},c=>c&&c.role!=='tower');
         }
+        break;
+      }
+
+      case 'push_subscribe':{
+        // 塔台網頁訂閱背景推播；用 towerId（不是這條連線）保存，因為訂閱要在 App 完全關閉、
+        // 這條 WebSocket 早就斷線之後還能用
+        if(conn.role!=='tower' || !msg.subscription || !msg.subscription.endpoint) return;
+        const tid=conn.towerId||'__no_tower_id__';
+        if(!pushSubs.has(tid)) pushSubs.set(tid,new Map());
+        pushSubs.get(tid).set(msg.subscription.endpoint, msg.subscription);
         break;
       }
 
@@ -526,6 +567,7 @@ wss.on('connection',ws=>{
           flightLog.push({date:todayStr(),groupName:gn,pilotName:dispName(pilot),type:'landing',time:nowTimeStr(),rwy:pilot.rwy||'',towerName:tName,towerType:tType});
         }
         broadcastPilots();
+        if(ackLabelMap[ackType]) pushToOwnerTower(conn.clientId,{title:'飛手回報',body:dispName(pilot)+' '+ackLabelMap[ackType]});
         console.log('[ACK] master clientId:', conn.clientId, 'ackType:', ackType);
         let followerCount=0;
         connections.forEach(c=>{ if(c.role==='follower'&&c.masterClientId===conn.clientId) followerCount++; });
@@ -551,6 +593,7 @@ wss.on('connection',ws=>{
           pushComm(dispName(pilot),'tower','任務結束');
         }
         toOwnerTower(conn.clientId,{type:'session_ended',pilotName:pilot?dispName(pilot):msg.pilotName});
+        pushToOwnerTower(conn.clientId,{title:'飛手回報',body:(pilot?dispName(pilot):msg.pilotName)+' 結束作業'});
         break;
       }
 
@@ -558,8 +601,10 @@ wss.on('connection',ws=>{
         const pilot=pilots.get(conn.clientId);
         const name=pilot?dispName(pilot):msg.pilotName;
         const askType=msg.askType==='duration'?'duration':'airport';
-        pushComm(name,'pilot',askType==='duration'?'詢問放行時長':'詢問機場狀況');
+        const askLabel=askType==='duration'?'詢問放行時長':'詢問機場狀況';
+        pushComm(name,'pilot',askLabel);
         toOwnerTower(conn.clientId,{type:'pilot_asking',pilotName:name,clientId:conn.clientId,askType});
+        pushToOwnerTower(conn.clientId,{title:'飛手詢問',body:name+' '+askLabel});
         break;
       }
 
@@ -577,6 +622,7 @@ wss.on('connection',ws=>{
         broadcastPilots();
         toOwnerTower(conn.clientId,{type:'pilot_notam_update',pilotName:dispName(pilot),clientId:conn.clientId,notam:msg.notam});
         toFollowers(conn.clientId,{type:'notam_update',notam:msg.notam});
+        pushToOwnerTower(conn.clientId,{title:'飛手回報',body:dispName(pilot)+' 更新飛航公告 '+msg.notam});
         break;
       }
 
@@ -588,6 +634,7 @@ wss.on('connection',ws=>{
         pushComm(dispName(pilot),'pilot','回報轉點'+(msg.viaNotam?'（公告轉點）':'')+'，約'+msg.minutes+'分鐘');
         broadcastPilots();
         toOwnerTower(conn.clientId,{type:'pilot_turnpoint',pilotName:dispName(pilot),clientId:conn.clientId,minutes:msg.minutes,viaNotam:!!msg.viaNotam});
+        pushToOwnerTower(conn.clientId,{title:'飛手回報',body:dispName(pilot)+' 回報轉點 約'+msg.minutes+'分'});
         break;
       }
 
@@ -627,6 +674,7 @@ wss.on('connection',ws=>{
         if(!txt) return;
         pushComm(nm,'pilot',txt);
         toOwnerTower(conn.masterClientId,{type:'pilot_msg_to_tower', pilotName:nm, message:txt});
+        pushToOwnerTower(conn.masterClientId,{title:'飛手訊息',body:nm+'：'+txt});
         break;
       }
 
@@ -638,6 +686,7 @@ wss.on('connection',ws=>{
         pushComm(dispName(pilot),'pilot','已就位');
         broadcastPilots();
         toOwnerTower(conn.clientId,{type:'pilot_arrived',pilotName:dispName(pilot),clientId:conn.clientId});
+        pushToOwnerTower(conn.clientId,{title:'飛手回報',body:dispName(pilot)+' 已就位'});
         break;
       }
 
@@ -656,6 +705,7 @@ wss.on('connection',ws=>{
         pushComm(dispName(pilot),'pilot','回報降落');
         broadcastPilots();
         toOwnerTower(conn.clientId,{type:'pilot_land_report',pilotName:dispName(pilot),clientId:conn.clientId});
+        pushToOwnerTower(conn.clientId,{title:'飛手回報',body:dispName(pilot)+' 回報降落'});
         break;
       }
 

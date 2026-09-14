@@ -624,7 +624,8 @@ $('btnDismissInstall').addEventListener('click',()=>{
 window.addEventListener('appinstalled',()=>{ $('installBar').classList.remove('show'); });
 
 if('serviceWorker' in navigator){
-  window.addEventListener('load',()=>{ navigator.serviceWorker.register('/sw.js').catch(()=>{}); });
+  // scope 跟塔台版分開，不然兩個 App 裝在同一支手機上會共用同一份 service worker 註冊/推播訂閱
+  window.addEventListener('load',()=>{ navigator.serviceWorker.register('/sw.js',{scope:'/pilot.html'}).catch(()=>{}); });
 }
 
 // ── 事件綁定：姓名/模式選擇 ──────────────────────────────────────────

@@ -382,7 +382,7 @@ const ACK_MAP={
 function connect(){
   const wsProtocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
   ws=new WebSocket(`${wsProtocol}//${location.host}`);
-  ws.onopen=()=>{setDot(true);ws.send(JSON.stringify({type:'tower_hello',towerName:towerName,towerType:towerType,towerId:towerId}));};
+  ws.onopen=()=>{setDot(true);ws.send(JSON.stringify({type:'tower_hello',towerName:towerName,towerType:towerType,towerId:towerId}));subscribePush();};
   ws.onclose=()=>{setDot(false);setTimeout(connect,3000);};
   ws.onerror=()=>ws.close();
   ws.onmessage=e=>handle(JSON.parse(e.data));
@@ -431,6 +431,31 @@ async function notifyTower(title, body){
   _initAudio();
 },{once:true}));
 
+// ── 背景推播：App 完全關閉（不是切背景，是真的關掉/被系統清掉）也要跳通知，
+// 靠瀏覽器的推播服務轉發，不是走我們自己的 WebSocket（那條線關掉App就斷了）────
+function urlBase64ToUint8Array(base64String){
+  const padding='='.repeat((4-base64String.length%4)%4);
+  const base64=(base64String+padding).replace(/-/g,'+').replace(/_/g,'/');
+  const rawData=atob(base64);
+  const arr=new Uint8Array(rawData.length);
+  for(let i=0;i<rawData.length;i++) arr[i]=rawData.charCodeAt(i);
+  return arr;
+}
+async function subscribePush(){
+  try{
+    if(!('serviceWorker' in navigator) || !('PushManager' in window)) return;
+    if(!window.Notification || Notification.permission!=='granted') return;
+    const reg=await navigator.serviceWorker.ready;
+    let sub=await reg.pushManager.getSubscription();
+    if(!sub){
+      const vapidKey=await (await fetch('/vapid-public-key')).text();
+      sub=await reg.pushManager.subscribe({userVisibleOnly:true,applicationServerKey:urlBase64ToUint8Array(vapidKey)});
+    }
+    // 伺服器只存記憶體，重啟就會忘記，所以每次連上都重送一次訂閱，不只申請權限那一次
+    send({type:'push_subscribe',towerId,subscription:sub.toJSON()});
+  }catch(e){ console.error('[push] subscribe failed:',e); }
+}
+
 // ── 通知權限 + PWA 安裝提示條 ────────────────────────────────────────
 function updateNotifyBar(){
   const bar=document.getElementById('notifyBar');
@@ -446,6 +471,7 @@ function updateNotifyBar(){
 document.getElementById('btnEnableNotify').addEventListener('click',async()=>{
   try{ await Notification.requestPermission(); }catch(e){}
   updateNotifyBar();
+  subscribePush();
 });
 document.getElementById('btnDismissNotify').addEventListener('click',()=>{
   localStorage.setItem('notifyBarDismissed','1');
@@ -463,6 +489,7 @@ document.getElementById('btnTestNotify').addEventListener('click',async()=>{
   }
   if(Notification.permission==='denied'){ showToast('⚠️ 通知被封鎖了，請到瀏覽器/系統設定手動開啟通知權限'); return; }
   if(Notification.permission!=='granted') return;
+  subscribePush();
   const opts={body:'看到這則代表通知設定成功',tag:'droneatis-test',icon:'/icons/icon-192.png',badge:'/icons/icon-192.png'};
   try{
     if('serviceWorker' in navigator && navigator.serviceWorker.controller){
@@ -501,7 +528,7 @@ document.getElementById('btnDismissInstall').addEventListener('click',()=>{
 window.addEventListener('appinstalled',()=>{ document.getElementById('installBar').classList.remove('show'); });
 
 if('serviceWorker' in navigator){
-  window.addEventListener('load',()=>{ navigator.serviceWorker.register('/sw.js').catch(err=>{ console.error('[SW] register failed:',err); }); });
+  window.addEventListener('load',()=>{ navigator.serviceWorker.register('/sw.js',{scope:'/'}).catch(err=>{ console.error('[SW] register failed:',err); }); });
 }
 
 // ── 降落倒數提醒：還剩1分鐘叫一次，剩10秒以內每秒叫一次 ──────────────────
