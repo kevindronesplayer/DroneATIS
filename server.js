@@ -93,7 +93,7 @@ const server = http.createServer((req,res)=>{
     res.end('\uFEFF'+txt); return;
   }
   let fp=path.join(__dirname,'public',req.url==='/'?'index.html':req.url);
-  const mime={'.html':'text/html','.js':'text/javascript','.css':'text/css','.json':'application/json','.bin':'application/octet-stream'};
+  const mime={'.html':'text/html','.js':'text/javascript','.css':'text/css','.json':'application/json','.bin':'application/octet-stream','.png':'image/png','.svg':'image/svg+xml','.ico':'image/x-icon','.webmanifest':'application/manifest+json'};
   fs.readFile(fp,(err,data)=>{
     if(err){res.writeHead(404);res.end('Not found');return;}
     res.writeHead(200,{'Content-Type':mime[path.extname(fp)]||'text/plain','Content-Length':data.length});

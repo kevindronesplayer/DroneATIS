@@ -4,6 +4,13 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=no">
 <title>無人機塔台</title>
+<link rel="manifest" href="/manifest.json">
+<meta name="theme-color" content="#0a0e1a">
+<link rel="icon" href="/icons/icon-192.png">
+<link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="塔台ATIS">
 <style>
 :root{--bg:#0a0e1a;--sf:#131929;--sf2:#1c2438;--sf3:#242e45;--ac:#00d4ff;--gr:#00e676;--rd:#ff3d57;--am:#ffa726;--tx:#e8f0fe;--tx2:#8899bb;--bd:rgba(255,255,255,0.07);--r:12px;--rs:8px;}
 *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent;}
@@ -190,6 +197,13 @@ body{font-family:-apple-system,'Noto Sans TC',sans-serif;background:var(--bg);co
 
 /* 待命標籤 */
 .pending-section{font-size:19px;color:var(--tx2);padding:12px 16px 4px;letter-spacing:.5px;}
+
+/* 通知／安裝提示條 */
+.notice-bar{display:none;align-items:center;gap:10px;padding:10px 16px;background:var(--sf2);border-bottom:1px solid var(--bd);font-size:15px;color:var(--tx);flex-shrink:0;}
+.notice-bar.show{display:flex;}
+.notice-bar span{flex:1;line-height:1.4;}
+.notice-btn{background:var(--ac);color:#000;border:none;border-radius:var(--rs);padding:7px 14px;font-size:14px;font-weight:700;cursor:pointer;font-family:inherit;flex-shrink:0;white-space:nowrap;}
+.notice-close{background:none;border:none;color:var(--tx2);font-size:18px;cursor:pointer;padding:2px 6px;flex-shrink:0;}
 </style>
 </head>
 <body>
@@ -200,6 +214,17 @@ body{font-family:-apple-system,'Noto Sans TC',sans-serif;background:var(--bg);co
     <span class="hdr-title" style="line-height:1.3">✈ DroneATIS<br><span style="font-size:11px;color:var(--tx2);font-weight:400">無人機飛航情報服務</span></span>
   </div>
   <div class="btn-sm" id="btnMyName">設定名稱</div>
+</div>
+
+<div class="notice-bar" id="notifyBar">
+  <span>🔔 開啟通知，飛手回報時就算沒開著畫面也會跳出提醒</span>
+  <button class="notice-btn" id="btnEnableNotify">開啟通知</button>
+  <button class="notice-close" id="btnDismissNotify">✕</button>
+</div>
+<div class="notice-bar" id="installBar">
+  <span>📲 可以安裝成 App，桌面有圖示、開啟更快</span>
+  <button class="notice-btn" id="btnInstallApp">安裝</button>
+  <button class="notice-close" id="btnDismissInstall">✕</button>
 </div>
 
 <div class="tabs">
@@ -376,25 +401,80 @@ function towerBeep(){
     o.start(s); o.stop(s+0.15);
   });
 }
-function notifyTower(title, body){
+async function notifyTower(title, body){
   const now=Date.now();
   if(body && body===_lastNotify.b && now-_lastNotify.t<2500) return; // 去重，避免同事件連叫兩次
   _lastNotify={t:now,b:body};
   towerBeep();
   try{ navigator.vibrate && navigator.vibrate([150,80,150]); }catch(e){}
+  if(!(window.Notification && Notification.permission==='granted' && document.hidden)) return;
+  const opts={body,tag:'droneatis',renotify:true,icon:'/icons/icon-192.png',badge:'/icons/icon-192.png'};
+  // Android Chrome 用一般 Notification() 建構式常常沒反應，裝成 PWA 後要透過 service worker 發才穩定
   try{
-    if(window.Notification && Notification.permission==='granted' && document.hidden){
-      const n=new Notification(title,{body,tag:'droneatis',renotify:true});
-      n.onclick=()=>{ try{window.focus();}catch(e){} n.close(); };
-      setTimeout(()=>n.close(),8000);
+    if('serviceWorker' in navigator && navigator.serviceWorker.controller){
+      const reg=await navigator.serviceWorker.ready;
+      await reg.showNotification(title,opts);
+      return;
     }
   }catch(e){}
+  try{
+    const n=new Notification(title,opts);
+    n.onclick=()=>{ try{window.focus();}catch(e){} n.close(); };
+    setTimeout(()=>n.close(),8000);
+  }catch(e){}
 }
-// 首次互動：解鎖音效、要求通知權限（Chrome/Android 有效；iOS 靠音效+震動）
+// 首次互動：解鎖音效（通知權限改由上方提示條的按鈕明確詢問，不要一點畫面就偷偷跳出系統詢問視窗）
 ['click','touchstart'].forEach(ev=>document.addEventListener(ev,()=>{
   _initAudio();
-  try{ if(window.Notification && Notification.permission==='default') Notification.requestPermission(); }catch(e){}
 },{once:true}));
+
+// ── 通知權限 + PWA 安裝提示條 ────────────────────────────────────────
+function updateNotifyBar(){
+  const bar=document.getElementById('notifyBar');
+  if(!window.Notification){ bar.classList.remove('show'); return; }
+  const dismissed=localStorage.getItem('notifyBarDismissed')==='1';
+  if(Notification.permission==='granted' || dismissed){ bar.classList.remove('show'); return; }
+  bar.querySelector('span').textContent = Notification.permission==='denied'
+    ? '🔕 通知被瀏覽器封鎖了，請到瀏覽器/系統設定手動開啟這個網站的通知'
+    : '🔔 開啟通知，飛手回報時就算沒開著畫面也會跳出提醒';
+  document.getElementById('btnEnableNotify').style.display = Notification.permission==='denied' ? 'none' : 'block';
+  bar.classList.add('show');
+}
+document.getElementById('btnEnableNotify').addEventListener('click',async()=>{
+  try{ await Notification.requestPermission(); }catch(e){}
+  updateNotifyBar();
+});
+document.getElementById('btnDismissNotify').addEventListener('click',()=>{
+  localStorage.setItem('notifyBarDismissed','1');
+  document.getElementById('notifyBar').classList.remove('show');
+});
+updateNotifyBar();
+
+let deferredInstallPrompt=null;
+function isStandalone(){ return window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone===true; }
+window.addEventListener('beforeinstallprompt',e=>{
+  e.preventDefault();
+  deferredInstallPrompt=e;
+  if(!isStandalone() && localStorage.getItem('installBarDismissed')!=='1'){
+    document.getElementById('installBar').classList.add('show');
+  }
+});
+document.getElementById('btnInstallApp').addEventListener('click',async()=>{
+  if(!deferredInstallPrompt) return;
+  deferredInstallPrompt.prompt();
+  try{ await deferredInstallPrompt.userChoice; }catch(e){}
+  deferredInstallPrompt=null;
+  document.getElementById('installBar').classList.remove('show');
+});
+document.getElementById('btnDismissInstall').addEventListener('click',()=>{
+  localStorage.setItem('installBarDismissed','1');
+  document.getElementById('installBar').classList.remove('show');
+});
+window.addEventListener('appinstalled',()=>{ document.getElementById('installBar').classList.remove('show'); });
+
+if('serviceWorker' in navigator){
+  window.addEventListener('load',()=>{ navigator.serviceWorker.register('/sw.js').catch(()=>{}); });
+}
 
 // ── 降落倒數提醒：還剩1分鐘叫一次，剩10秒以內每秒叫一次 ──────────────────
 // 「馬上降落」的絕對截止時間伺服器不會回傳，塔台自己在送出當下記一份（clientId -> 當天總秒數）
