@@ -4,6 +4,13 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=no">
 <title>DroneATIS 飛手</title>
+<link rel="manifest" href="/manifest-pilot.json">
+<meta name="theme-color" content="#0a0e1a">
+<link rel="icon" href="/icons-pilot/icon-192.png">
+<link rel="apple-touch-icon" href="/icons-pilot/apple-touch-icon.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="飛手ATIS">
 <style>
 :root{--bg:#0a0e1a;--sf:#131929;--sf2:#1c2438;--sf3:#242e45;--ac:#00d4ff;--gr:#00e676;--rd:#ff3d57;--am:#ffa726;--tx:#e8f0fe;--tx2:#8899bb;--bd:rgba(255,255,255,0.07);--r:12px;--rs:8px;}
 *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent;}
@@ -79,6 +86,14 @@ input[type=text]:focus,input[type=number]:focus{border-color:var(--ac);}
 .toast{position:fixed;bottom:90px;left:50%;transform:translateX(-50%);background:var(--sf3);color:var(--tx);padding:10px 18px;border-radius:99px;font-size:15px;z-index:300;opacity:0;transition:opacity .3s;pointer-events:none;white-space:nowrap;border:1px solid var(--bd);max-width:90vw;overflow:hidden;text-overflow:ellipsis;}
 .toast.show{opacity:1;}
 
+/* 通知／安裝提示條：body 是 flex column，放在所有 .page 前面，佔掉的高度會自動把下面的畫面往下推，
+   不用 fixed（fixed 會蓋住 .topbar，蓋到名字/更多鍵） */
+.notice-bar{display:none;align-items:center;gap:10px;padding:10px 16px;background:var(--sf2);border-bottom:1px solid var(--bd);font-size:14px;color:var(--tx);flex-shrink:0;}
+.notice-bar.show{display:flex;}
+.notice-bar span{flex:1;line-height:1.4;}
+.notice-btn{background:var(--gr);color:#000;border:none;border-radius:var(--rs);padding:7px 14px;font-size:13px;font-weight:700;cursor:pointer;font-family:inherit;flex-shrink:0;white-space:nowrap;}
+.notice-close{background:none;border:none;color:var(--tx2);font-size:18px;cursor:pointer;padding:2px 6px;flex-shrink:0;}
+
 .modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,.6);display:none;align-items:center;justify-content:center;z-index:500;padding:20px;}
 .modal-overlay.show{display:flex;}
 .modal{background:var(--sf);border-radius:var(--r);padding:22px;width:100%;max-width:340px;display:flex;flex-direction:column;gap:14px;}
@@ -90,6 +105,17 @@ input[type=text]:focus,input[type=number]:focus{border-color:var(--ac);}
 </style>
 </head>
 <body>
+
+<div class="notice-bar" id="notifyBar">
+  <span>🔔 開啟通知，主控來訊時就算沒開著畫面也會跳出提醒</span>
+  <button class="notice-btn" id="btnEnableNotify">開啟通知</button>
+  <button class="notice-close" id="btnDismissNotify">✕</button>
+</div>
+<div class="notice-bar" id="installBar">
+  <span>📲 可以安裝成 App，桌面有圖示、開啟更快</span>
+  <button class="notice-btn" id="btnInstallApp">安裝</button>
+  <button class="notice-close" id="btnDismissInstall">✕</button>
+</div>
 
 <!-- 姓名輸入 -->
 <div class="page center-page active" id="scrName">
@@ -328,12 +354,14 @@ function handle(msg){
       landState=(currentStatus==='降落')?'wait_ack':'none';
       if(gatherMode){ ackPending=true; ackDeadline=Date.now()+30000; lastNagAt=Date.now(); }
       renderMain(); beep(880); vibrate();
+      notifyPilot('塔台來訊', currentStatus+(getLandTimeDisplay()?(' '+getLandTimeDisplay()):''));
       break;
     case 'message':
       showingMessage=true; everReceivedCommand=true;
       lastMessage=msg.message; lastMessageTime=msg.time||nowClock(); landState='none';
       if(gatherMode){ ackPending=true; ackDeadline=Date.now()+30000; lastNagAt=Date.now(); }
       renderMain(); beep(660); vibrate();
+      notifyPilot('塔台訊息', msg.message);
       break;
     case 'group_update':
       groupName=msg.groupName||''; if(msg.towerName) towerName=msg.towerName;
@@ -528,6 +556,76 @@ function beep(freq){
   }catch(e){}
 }
 function vibrate(){ if(navigator.vibrate) navigator.vibrate(200); }
+
+// 背景系統通知：畫面沒在看（切到背景/鎖螢幕）時，塔台/主控來訊也要跳出提醒
+let _lastPilotNotify={t:0,b:''};
+async function notifyPilot(title, body){
+  const now=Date.now();
+  if(body && body===_lastPilotNotify.b && now-_lastPilotNotify.t<2500) return;
+  _lastPilotNotify={t:now,b:body};
+  if(!(window.Notification && Notification.permission==='granted' && document.hidden)) return;
+  const opts={body,tag:'droneatis-pilot',renotify:true,icon:'/icons-pilot/icon-192.png',badge:'/icons-pilot/icon-192.png'};
+  try{
+    if('serviceWorker' in navigator && navigator.serviceWorker.controller){
+      const reg=await navigator.serviceWorker.ready;
+      await reg.showNotification(title,opts);
+      return;
+    }
+  }catch(e){}
+  try{
+    const n=new Notification(title,opts);
+    n.onclick=()=>{ try{window.focus();}catch(e){} n.close(); };
+    setTimeout(()=>n.close(),8000);
+  }catch(e){}
+}
+
+// ── 通知權限 + PWA 安裝提示條 ────────────────────────────────────────
+function updateNotifyBar(){
+  const bar=$('notifyBar');
+  if(!window.Notification){ bar.classList.remove('show'); return; }
+  const dismissed=localStorage.getItem('notifyBarDismissed')==='1';
+  if(Notification.permission==='granted' || dismissed){ bar.classList.remove('show'); return; }
+  bar.querySelector('span').textContent = Notification.permission==='denied'
+    ? '🔕 通知被瀏覽器封鎖了，請到瀏覽器/系統設定手動開啟這個網站的通知'
+    : '🔔 開啟通知，主控來訊時就算沒開著畫面也會跳出提醒';
+  $('btnEnableNotify').style.display = Notification.permission==='denied' ? 'none' : 'block';
+  bar.classList.add('show');
+}
+$('btnEnableNotify').addEventListener('click',async()=>{
+  try{ await Notification.requestPermission(); }catch(e){}
+  updateNotifyBar();
+});
+$('btnDismissNotify').addEventListener('click',()=>{
+  localStorage.setItem('notifyBarDismissed','1');
+  $('notifyBar').classList.remove('show');
+});
+updateNotifyBar();
+
+let deferredInstallPrompt=null;
+function isStandalone(){ return window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone===true; }
+window.addEventListener('beforeinstallprompt',e=>{
+  e.preventDefault();
+  deferredInstallPrompt=e;
+  if(!isStandalone() && localStorage.getItem('installBarDismissed')!=='1'){
+    $('installBar').classList.add('show');
+  }
+});
+$('btnInstallApp').addEventListener('click',async()=>{
+  if(!deferredInstallPrompt) return;
+  deferredInstallPrompt.prompt();
+  try{ await deferredInstallPrompt.userChoice; }catch(e){}
+  deferredInstallPrompt=null;
+  $('installBar').classList.remove('show');
+});
+$('btnDismissInstall').addEventListener('click',()=>{
+  localStorage.setItem('installBarDismissed','1');
+  $('installBar').classList.remove('show');
+});
+window.addEventListener('appinstalled',()=>{ $('installBar').classList.remove('show'); });
+
+if('serviceWorker' in navigator){
+  window.addEventListener('load',()=>{ navigator.serviceWorker.register('/sw.js').catch(()=>{}); });
+}
 
 // ── 事件綁定：姓名/模式選擇 ──────────────────────────────────────────
 if(pilotName){ $('nameInput').value=pilotName; }

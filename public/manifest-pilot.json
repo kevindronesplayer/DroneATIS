@@ -1,0 +1,19 @@
+{
+  "name": "DroneATIS 飛手",
+  "short_name": "飛手ATIS",
+  "description": "無人機飛手行動裝置",
+  "id": "/pilot.html",
+  "start_url": "/pilot.html",
+  "scope": "/pilot.html",
+  "display": "standalone",
+  "background_color": "#0a0e1a",
+  "theme_color": "#0a0e1a",
+  "orientation": "portrait",
+  "lang": "zh-TW",
+  "icons": [
+    { "src": "/icons-pilot/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/icons-pilot/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "/icons-pilot/icon-maskable-192.png", "sizes": "192x192", "type": "image/png", "purpose": "maskable" },
+    { "src": "/icons-pilot/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}
