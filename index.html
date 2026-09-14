@@ -213,7 +213,10 @@ body{font-family:-apple-system,'Noto Sans TC',sans-serif;background:var(--bg);co
     <span class="hdot" id="serverDot"></span>
     <span class="hdr-title" style="line-height:1.3">✈ DroneATIS<br><span style="font-size:11px;color:var(--tx2);font-weight:400">無人機飛航情報服務</span></span>
   </div>
-  <div class="btn-sm" id="btnMyName">設定名稱</div>
+  <div style="display:flex;gap:8px;">
+    <div class="btn-sm" id="btnTestNotify" style="font-size:14px;">🔔測試通知</div>
+    <div class="btn-sm" id="btnMyName">設定名稱</div>
+  </div>
 </div>
 
 <div class="notice-bar" id="notifyBar">
@@ -450,6 +453,31 @@ document.getElementById('btnDismissNotify').addEventListener('click',()=>{
 });
 updateNotifyBar();
 
+// 測試通知：故意不管畫面在不在前景（正式通知只在背景才跳，這裡是為了讓人能馬上驗證設定有沒有生效），
+// 而且把每一步失敗的原因都攤開來，不要又是一片沉默看不出到底卡在哪
+document.getElementById('btnTestNotify').addEventListener('click',async()=>{
+  if(!window.Notification){ showToast('⚠️ 這個瀏覽器不支援通知'); return; }
+  if(Notification.permission==='default'){
+    try{ await Notification.requestPermission(); }catch(e){}
+    updateNotifyBar();
+  }
+  if(Notification.permission==='denied'){ showToast('⚠️ 通知被封鎖了，請到瀏覽器/系統設定手動開啟通知權限'); return; }
+  if(Notification.permission!=='granted') return;
+  const opts={body:'看到這則代表通知設定成功',tag:'droneatis-test',icon:'/icons/icon-192.png',badge:'/icons/icon-192.png'};
+  try{
+    if('serviceWorker' in navigator && navigator.serviceWorker.controller){
+      const reg=await navigator.serviceWorker.ready;
+      await reg.showNotification('✈ 測試通知',opts);
+      showToast('已送出測試通知（背景服務）');
+      return;
+    }
+  }catch(e){ showToast('⚠️ 背景服務發送失敗：'+(e&&e.message||e)); return; }
+  try{
+    new Notification('✈ 測試通知',opts);
+    showToast('已送出測試通知');
+  }catch(e){ showToast('⚠️ 發送失敗：'+(e&&e.message||e)); }
+});
+
 let deferredInstallPrompt=null;
 function isStandalone(){ return window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone===true; }
 window.addEventListener('beforeinstallprompt',e=>{
@@ -473,7 +501,7 @@ document.getElementById('btnDismissInstall').addEventListener('click',()=>{
 window.addEventListener('appinstalled',()=>{ document.getElementById('installBar').classList.remove('show'); });
 
 if('serviceWorker' in navigator){
-  window.addEventListener('load',()=>{ navigator.serviceWorker.register('/sw.js').catch(()=>{}); });
+  window.addEventListener('load',()=>{ navigator.serviceWorker.register('/sw.js').catch(err=>{ console.error('[SW] register failed:',err); }); });
 }
 
 // ── 降落倒數提醒：還剩1分鐘叫一次，剩10秒以內每秒叫一次 ──────────────────
