@@ -131,7 +131,7 @@ input[type=text]:focus,input[type=number]:focus{border-color:var(--ac);}
   <div class="sub" id="modeSelName"></div>
   <div class="mode-btn" id="btnModeMonitor" style="border-color:var(--tx2)">
     <div class="t" style="color:var(--tx)">主控模式輔助</div>
-    <div class="d">名字需與主控者相同。看跟隨者狀態、傳自由訊息給塔台</div>
+    <div class="d">名字需與主控者相同。<br>看跟隨者狀態、傳自由訊息給塔台</div>
   </div>
   <div class="mode-btn follower" id="btnModeView">
     <div class="t">跟隨模式</div>
@@ -139,11 +139,11 @@ input[type=text]:focus,input[type=number]:focus{border-color:var(--ac);}
   </div>
   <div class="mode-btn" id="btnModeGather" style="border-color:var(--am)">
     <div class="t" style="color:var(--am)">飛聚跟隨模式</div>
-    <div class="d">跟隨主控，需回報（回報給主控者，不是塔台）</div>
+    <div class="d">跟隨主控，需回報<br>（回報給主控者，不是塔台）</div>
   </div>
   <div class="mode-btn" id="btnModeAtcData" style="border-color:var(--gr)">
     <div class="t" style="color:var(--gr)">塔台放行數據</div>
-    <div class="d">查詢無人機塔台歷史放行數據（外部工具，不需連線）</div>
+    <div class="d">查詢無人機塔台歷史放行數據<br>（外部工具，不需連線）</div>
   </div>
   <button class="btn outline" id="btnModeBack">‹ 更改名字</button>
 </div>
@@ -236,6 +236,7 @@ input[type=text]:focus,input[type=number]:focus{border-color:var(--ac);}
   <div class="modal">
     <h3>更多功能</h3>
     <button class="btn outline" id="btnRename">更改名字</button>
+    <button class="btn outline" id="btnMoreAtcData" style="border-color:var(--gr);color:var(--gr);">塔台放行數據</button>
     <button class="btn outline" id="btnBackToModeSel">重新選擇模式</button>
     <button class="btn gray" id="btnCloseMore">關閉</button>
   </div>
@@ -674,12 +675,17 @@ $('btnModeView').addEventListener('click',()=>{ followerKind='view'; gatherMode=
 $('btnModeGather').addEventListener('click',()=>{ followerKind='gather'; gatherMode=true; monitorMode=false; gotoFollowerCode(); });
 $('btnModeMonitor').addEventListener('click',()=>{ followerKind='monitor'; gatherMode=false; monitorMode=true; gotoFollowerCode(); });
 $('btnModeBack').addEventListener('click',()=>{ showPage('scrName'); });
-$('btnModeAtcData').addEventListener('click',()=>{
+let atcDataReturnPage='scrModeSelect'; // 從哪個畫面點進來的，返回要回得去（不能都固定回選擇模式，不然已連線的畫面會被硬切走）
+function openAtcData(){
+  const cur=document.querySelector('.page.active');
+  if(cur) atcDataReturnPage=cur.id;
   const frame=$('atcDataFrame');
   if(frame.src==='about:blank') frame.src='https://kevindronesplayer.github.io/drone-atc-data/';
   showPage('scrAtcData');
-});
-$('btnAtcDataBack').addEventListener('click',()=>{ showModeSelect(); });
+}
+$('btnModeAtcData').addEventListener('click',openAtcData);
+$('btnMoreAtcData').addEventListener('click',()=>{ hideModal('moreModal'); openAtcData(); });
+$('btnAtcDataBack').addEventListener('click',()=>{ showPage(atcDataReturnPage); });
 $('btnFollowerBack').addEventListener('click',()=>{ showModeSelect(); });
 
 let followerBuf='';
