@@ -1,5 +1,5 @@
 {
-  "version": 31,
-  "notes": "新增多NOTAM功能（最多3個，只有1個時操作方式不變）：主控可在公告畫面新增/切換/刪除NOTAM，每個獨立回報",
+  "version": 32,
+  "notes": "修正找不到「新增NOTAM」的問題：待命畫面飛航公告框旁邊新增「+」按鈕（最多3個時顯示），才能真的加到第2個",
   "url": "https://droneatis-production.up.railway.app/firmware/esp32_pilot.bin"
 }

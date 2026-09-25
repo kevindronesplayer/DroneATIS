@@ -23,7 +23,7 @@
 #define GPS_RX_PIN    32   // Core2 PORT.A（外接I2C腳位，這裡改當UART用；訊號1=RXD）
 #define GPS_TX_PIN    33   // Core2 PORT.A（訊號2=TXD）
 #define GPS_BAUD      115200
-#define FW_VERSION    31
+#define FW_VERSION    32
 #define UPDATE_CHECK_URL "https://droneatis-production.up.railway.app/firmware/version.json"
 
 // ── NVS 儲存 ─────────────────────────────────────────────────────────────────
@@ -1235,11 +1235,16 @@ void drawIdle(){
   if(pilotMode==MODE_MASTER) drawGpsBtn();
 
   // 公告框（觸控 y:58~78）
-  M5.Display.fillRoundRect(6,58,214,20,4,CLR_SURFACE); M5.Display.drawRoundRect(6,58,214,20,4,0x4228);
+  M5.Display.fillRoundRect(6,58,208,20,4,CLR_SURFACE); M5.Display.drawRoundRect(6,58,208,20,4,0x4228);
   fXs(); M5.Display.setTextDatum(middle_left);
   if(notamCode.length()>0){ M5.Display.setTextColor(CLR_AMBER); M5.Display.drawString("飛航公告: "+notamCode,10,68); }
   else if(pilotMode==MODE_MASTER){ M5.Display.setTextColor(0x5AEB); M5.Display.drawString("點擊輸入飛航公告",10,68); }
   else { M5.Display.setTextColor(CLR_GRAY); M5.Display.drawString("飛航公告",10,68); }
+  // 「+」新增一個 NOTAM（最多3個）；只有主控看得到，滿3個就不顯示
+  if(pilotMode==MODE_MASTER && notamCount<3){
+    M5.Display.fillRoundRect(218,58,26,20,4,CLR_SURFACE); M5.Display.drawRoundRect(218,58,26,20,4,CLR_ACCENT);
+    M5.Display.setTextDatum(middle_center); M5.Display.setTextColor(CLR_ACCENT); M5.Display.drawString("+",231,68);
+  }
 
   if(rwyDir.length()>0){
     fXs(); M5.Display.setTextDatum(middle_right); M5.Display.setTextColor(CLR_WHITE);
@@ -1560,7 +1565,7 @@ void drawKeypad(){
   M5.Display.setTextDatum(middle_center);
   M5.Display.fillRoundRect(4,2,40,26,4,CLR_SURFACE); M5.Display.drawRoundRect(4,2,40,26,4,CLR_GRAY);
   fSm(); M5.Display.setTextColor(CLR_WHITE); M5.Display.drawString("<",24,15);
-  fXs(); M5.Display.setTextColor(CLR_AMBER); M5.Display.drawString("飛航公告號碼 (U+4碼)",160,10);
+  fXs(); M5.Display.setTextColor(CLR_AMBER); M5.Display.drawString(notamAddMode?"新增 NOTAM 號碼 (U+4碼)":"飛航公告號碼 (U+4碼)",160,10);
   String preview="U"+(keypadBuffer.length()>0?keypadBuffer:"____");
   fLg(); M5.Display.setTextColor(CLR_ACCENT); M5.Display.drawString(preview,160,36);
   int keys[]={1,2,3,4,5,6,7,8,9,-1,0,-2};
@@ -1749,7 +1754,8 @@ void handleTouch(){
     // GPS
     if(tx>232&&tx<314&&ty>34&&ty<56){ if(pilotMode==MODE_MASTER){ gpsEnabled=!gpsEnabled; if(!gpsEnabled)gpsFixed=false; drawGpsBtn(); sendHeartbeat(); } }
     // 公告
-    if(tx<230&&ty>58&&ty<78&&pilotMode==MODE_MASTER){ notamHadValue=notamCode.length()>0; keypadMode=KP_NOTAM; keypadBuffer=notamCode.length()>0?notamCode.substring(1):""; drawKeypad(); return; }
+    if(tx<214&&ty>58&&ty<78&&pilotMode==MODE_MASTER){ notamHadValue=notamCode.length()>0; keypadMode=KP_NOTAM; keypadBuffer=notamCode.length()>0?notamCode.substring(1):""; drawKeypad(); return; }
+    if(tx>=214&&tx<=244&&ty>58&&ty<78&&pilotMode==MODE_MASTER&&notamCount<3){ notamHadValue=false; notamAddMode=true; keypadMode=KP_NOTAM; keypadBuffer=""; drawKeypad(); return; }
     // 降落長按
     if(ty>178&&ty<214&&currentStatus=="可以起飛"&&pilotMode==MODE_MASTER){ landBtnPressAt=millis(); landBtnPressed=true; }
     // 轉點／就位切換按鈕（底部第2格，共3格，對應實體 BtnB）
@@ -1798,7 +1804,8 @@ void handleTouch(){
     // 名字觸控改名（主控）：SCR_IDLE 早就有這個功能，但收到指令切到 SCR_COMMAND 後這裡漏了同一個熱區，
     // 導致正在作業中（畫面幾乎都停在這頁）點名字完全沒反應，像是壞掉一樣
     if(tx>=40&&tx<182&&ty<32&&pilotMode==MODE_MASTER){ renameReturnScreen=currentScreen; kbBuffer=pilotDisplayName.length()>0?pilotDisplayName:pilotName; kbHint="更改飛手名字（英文小寫）"; kbTarget="rename"; kbShift=false; kbPage=0; kbMaxLen=10; currentScreen=SCR_NAME_INPUT; drawKeyboard(); return; }
-    if(tx<230&&ty>58&&ty<78&&pilotMode==MODE_MASTER){ notamHadValue=notamCode.length()>0; keypadMode=KP_NOTAM; keypadBuffer=notamCode.length()>0?notamCode.substring(1):""; drawKeypad(); return; }
+    if(tx<214&&ty>58&&ty<78&&pilotMode==MODE_MASTER){ notamHadValue=notamCode.length()>0; keypadMode=KP_NOTAM; keypadBuffer=notamCode.length()>0?notamCode.substring(1):""; drawKeypad(); return; }
+    if(tx>=214&&tx<=244&&ty>58&&ty<78&&pilotMode==MODE_MASTER&&notamCount<3){ notamHadValue=false; notamAddMode=true; keypadMode=KP_NOTAM; keypadBuffer=""; drawKeypad(); return; }
     if(ty>164&&tx>40&&tx<280&&NEEDS_ACK){
       if(landState==LAND_WAIT_ACK){ submitAck("landing_ack"); ackPending=false; buzzPhase=0; landState=LAND_COUNTDOWN; drawCommand(); buzz(880,150); }
       else if(landState==LAND_COUNTDOWN){ landDonePressAt=millis(); landDonePressed=true; }
