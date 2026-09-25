@@ -1,5 +1,5 @@
 {
-  "version": 32,
-  "notes": "修正找不到「新增NOTAM」的問題：待命畫面飛航公告框旁邊新增「+」按鈕（最多3個時顯示），才能真的加到第2個",
+  "version": 33,
+  "notes": "修正多NOTAM相關觸控失靈：刪除NOTAM、編輯NOTAM確認、實體按鈕取消輸入後畫面卡死不能按的問題；塔台指令/訊息畫面在多NOTAM時標示是哪一則",
   "url": "https://droneatis-production.up.railway.app/firmware/esp32_pilot.bin"
 }

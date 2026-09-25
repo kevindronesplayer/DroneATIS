@@ -320,7 +320,7 @@ function updateGroupStatus(groupId,status,landingTime,immediate){
     applyStatus(p,status,landingTime,0);
     const slot=notamSlot(p,0);
     toPilot(cid,{type:'command',status,landingTime:landingTime||null,immediate:!!immediate,groupName:groupName(groupId),time:slot.lastMessageTime,notamIndex:0,notamCode:slot.code||'',notamCount:p.notams.length});
-    toFollowers(cid,{type:'follower_sync',status,landingTime:landingTime||null,immediate:!!immediate,groupName:groupName(groupId),time:slot.lastMessageTime});
+    toFollowers(cid,{type:'follower_sync',status,landingTime:landingTime||null,immediate:!!immediate,groupName:groupName(groupId),time:slot.lastMessageTime,notamIndex:0,notamCode:slot.code||'',notamCount:p.notams.length});
     markGatherPending(cid);
   });
   broadcastPilots();
@@ -396,7 +396,7 @@ wss.on('connection',ws=>{
           applyStatus(pilot,status,landingTime,notamIndex);
           const slot=notamSlot(pilot,notamIndex);
           toPilot(clientId,{type:'command',status,landingTime:landingTime||null,immediate:!!immediate,groupName:'',time:slot.lastMessageTime,notamIndex,notamCode:slot.code||'',notamCount:pilot.notams.length});
-          toFollowers(clientId,{type:'follower_sync',status,landingTime:landingTime||null,immediate:!!immediate,groupName:'',time:slot.lastMessageTime});
+          toFollowers(clientId,{type:'follower_sync',status,landingTime:landingTime||null,immediate:!!immediate,groupName:'',time:slot.lastMessageTime,notamIndex,notamCode:slot.code||'',notamCount:pilot.notams.length});
           markGatherPending(clientId);
           broadcastPilots();
         }
@@ -433,7 +433,7 @@ wss.on('connection',ws=>{
         syncLegacyFromSlot0(pilot);
         pushComm(dispName(pilot),'tower',notamLabel(pilot,notamIndex)+msg.message);
         toPilot(msg.clientId,{type:'message',message:msg.message,time:msgTime,notamIndex,notamCode:slot.code||'',notamCount:pilot.notams.length});
-        toFollowers(msg.clientId,{type:'message',message:msg.message,time:msgTime});
+        toFollowers(msg.clientId,{type:'message',message:msg.message,time:msgTime,notamIndex,notamCode:slot.code||'',notamCount:pilot.notams.length});
         markGatherPending(msg.clientId);
         broadcastPilots();
         break;
@@ -546,7 +546,8 @@ wss.on('connection',ws=>{
           hasCommand: !!masterPilot.hasCommand,
           landDone: !!masterPilot.landingReported,
           notam: masterPilot.notam||'',
-          rwy: masterPilot.rwy||''
+          rwy: masterPilot.rwy||'',
+          notamCount: masterPilot.notams ? masterPilot.notams.length : 1
         }));
         // 告知塔台有跟隨者
         broadcastPilots();

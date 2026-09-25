@@ -264,6 +264,7 @@ let pilotName=localStorage.getItem('pilotName')||'';
 let clientId='', roomCode='', masterCode='';
 let towerConnected=false, towerName='塔台', towerTypeStr='南塔', groupName='';
 let notamCode='', rwyDir='';
+let notamCountF=1; // 主控目前同時作業中的 NOTAM 數；>1 時要標示這則指令/訊息是對哪個 NOTAM
 let currentStatus='開機預備', lastMessage='', lastMessageTime='', showingMessage=false, everReceivedCommand=false;
 let landingTimeStr='', landingReason='';
 let ackPending=false, ackDeadline=0;
@@ -341,6 +342,7 @@ function handle(msg){
       clientId=msg.clientId; towerConnected=true;
       groupName=msg.groupName||''; towerName=msg.towerName||'塔台'; towerTypeStr=msg.towerType||'南塔';
       notamCode=msg.notam||''; rwyDir=msg.rwy||'';
+      notamCountF=msg.notamCount||1;
       currentStatus=msg.status||'開機預備';
       immEndSec=null;
       applyLandingTime(msg.landingTime);
@@ -368,6 +370,7 @@ function handle(msg){
     case 'command': case 'follower_sync':
       showingMessage=false; everReceivedCommand=true;
       currentStatus=msg.status;
+      notamCountF=msg.notamCount||1; if(msg.notamCode!==undefined) notamCode=msg.notamCode;
       lastMessageTime=msg.time||nowClock(); // 塔台這次來訊的時間（指令也要顯示，跟 line 一樣）
       if(msg.immediate){
         // 馬上降落：從收到指令當下起算，剛好倒數 1 分鐘
@@ -383,6 +386,7 @@ function handle(msg){
       break;
     case 'message':
       showingMessage=true; everReceivedCommand=true;
+      notamCountF=msg.notamCount||1; if(msg.notamCode!==undefined) notamCode=msg.notamCode;
       lastMessage=msg.message; lastMessageTime=msg.time||nowClock(); landState='none';
       if(gatherMode){ ackPending=true; ackDeadline=Date.now()+30000; lastNagAt=Date.now(); }
       renderMain(); beep(660); vibrate();
@@ -477,6 +481,9 @@ function renderMain(){
   updateConnDot();
   $('notamVal').textContent = notamCode || '未設定';
   $('notamVal').style.color = notamCode ? 'var(--am)' : 'var(--tx2)';
+  // 主控同時作業多個 NOTAM 時，標明目前這則狀態/訊息是對哪個 NOTAM，避免誤判成別的公告
+  const notamRowLbl=document.querySelector('#notamRow .lbl');
+  if(notamRowLbl) notamRowLbl.textContent = notamCountF>1 ? '此則對應公告' : '飛航公告';
 
   const metaBits=[];
   if(towerConnected) metaBits.push((towerTypeStr||'')+' '+(towerName||'塔台'));

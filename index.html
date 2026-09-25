@@ -675,6 +675,8 @@ function renderPilots(){
 // 右邊狀態一次只顯示一個，優先序：回應狀態（等待回應/收到降落指令/已降落…）> 降落鎖定 > 轉點/就位
 // 回應狀態要優先，降落過程才會先顯示「收到降落指令」、飛手回報降落後才換成「已降落」，而不是整段被鎖定圖示蓋掉
 function stripTagsHTML(p){
+  // 多 NOTAM 時，這個狀態改成每個 NOTAM 自己在下面那一欄顯示，名字旁邊這個就不用重複顯示了
+  if(p.notams && p.notams.length>1) return '';
   const ackInfo=ACK_MAP[p.ackStatus]||null;
   if(ackInfo) return `<span class="ack-tag ${ackInfo[0]}">${ackInfo[1]}</span>`;
   if(p.landingLocked) return `<span class="ack-tag land">🔒降落</span>`;
@@ -696,10 +698,13 @@ function stripMetaHTML(p){
 }
 // 飛航公告放最前面，定位放最後面
 function stripRow2HTML(p){
-  return `<span style="font-size:16px">飛航公告 <b style="color:${p.notam?'var(--am)':'var(--tx2)'}">${escapeHtml(p.notam||'未設定')}</b></span>`
+  const content=`<span style="font-size:16px">飛航公告 <b style="color:${p.notam?'var(--am)':'var(--tx2)'}">${escapeHtml(p.notam||'未設定')}</b></span>`
     +`<span>跑道 RWY <input class="strip-rwy" data-cid="${p.clientId}" inputmode="numeric" maxlength="2" value="${escapeHtml((p.rwy||'').replace('RWY',''))}" style="width:44px;letter-spacing:2px"></span>`
     +`<span>分類 <select class="strip-grp" data-cid="${p.clientId}"><option value="">未分類</option>${groups.map(g=>`<option value="${g.groupId}" ${p.groupId===g.groupId?'selected':''}>${escapeHtml(g.name)}</option>`).join('')}</select></span>`
     +`<span class="strip-meta">${stripMetaHTML(p)}</span>`;
+  // 多 NOTAM 時，飛航公告已經在下面那一欄各自顯示，這裡不重複顯示，但位置保留不要讓下面的內容往上擠
+  if(p.notams && p.notams.length>1) return `<span style="visibility:hidden">${content}</span>`;
+  return content;
 }
 function stripRow3HTML(p){
   return (p.followers&&p.followers.length)?`👥 跟隨: ${escapeHtml(p.followers.map(f=>f.name).join(', '))}`:'';
@@ -774,7 +779,7 @@ function selectNotam(cid,idx){
   selectedCid=cid; selectedNotamIndex=idx;
   document.querySelectorAll('.pilot-strip').forEach(s=>s.classList.toggle('sel',s.dataset.cid===cid));
   const p=pilots.find(x=>x.clientId===cid);
-  if(p){ const el=document.getElementById('strip_'+cid); if(el){ const list=el.querySelector('.strip-notam-list'); if(list) list.innerHTML=stripNotamListHTML(p); } }
+  if(p){ const el=document.getElementById('strip_'+cid); if(el){ const list=el.querySelector('.strip-notam-list'); if(list){ list.innerHTML=stripNotamListHTML(p); list.querySelectorAll('.strip-notam-row').forEach(r=>r.addEventListener('click',(e)=>{ e.stopPropagation(); selectNotam(r.dataset.cid,parseInt(r.dataset.idx,10)); })); } } }
   renderComposer();
 }
 window.addEventListener('resize',()=>{ if(typeof fitComposerPad==='function') fitComposerPad(); });

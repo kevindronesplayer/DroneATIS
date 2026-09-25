@@ -23,7 +23,7 @@
 #define GPS_RX_PIN    32   // Core2 PORT.A（外接I2C腳位，這裡改當UART用；訊號1=RXD）
 #define GPS_TX_PIN    33   // Core2 PORT.A（訊號2=TXD）
 #define GPS_BAUD      115200
-#define FW_VERSION    32
+#define FW_VERSION    33
 #define UPDATE_CHECK_URL "https://droneatis-production.up.railway.app/firmware/version.json"
 
 // ── NVS 儲存 ─────────────────────────────────────────────────────────────────
@@ -1218,7 +1218,11 @@ void handleNotamDeleteConfirmTouch(int tx,int ty){
   else if(activeNotamIdx>idx) activeNotamIdx--;
   switchToNotamSlot(activeNotamIdx); // 重新把全域變數對齊到（可能變動過的）activeNotamIdx
   beep2();
-  drawIdle(); // notamCount 若已經回到1，drawIdle() 會自己判斷改顯示原本的單一 NOTAM 畫面
+  // drawIdle() 本身不會設定 currentScreen（一直都是靠呼叫端先設好），這裡漏掉的話 currentScreen
+  // 會停在 SCR_NOTAM_DELETE_CONFIRM，之後所有觸控都會被導去已經失效的刪除確認畫面處理常式，
+  // 導致畫面看起來對了但整個點不動（包含新增 NOTAM 的「+」鍵）
+  currentScreen=SCR_IDLE;
+  drawIdle(); // notamCount 若已經回到1，drawIdle() 會自己判斷改顯示原本的單一 NOTAM 畫面；還有2個以上會轉去清單
 }
 
 void drawIdle(){
@@ -1339,7 +1343,7 @@ void drawCommand(){
   uint16_t bar=(currentStatus=="可以起飛")?CLR_GREEN:(currentStatus=="降落")?CLR_AMBER:CLR_RED;
   M5.Display.fillRect(0,32,320,26,bar);
   fXs(); M5.Display.setTextDatum(middle_center); M5.Display.setTextColor(CLR_BG);
-  M5.Display.drawString("塔台指令",160,45);
+  M5.Display.drawString(notamCount>1&&notamCode.length()>0?("塔台指令 · "+notamCode):"塔台指令",160,45);
   uint16_t sc=(currentStatus=="可以起飛")?CLR_GREEN:(currentStatus=="降落")?CLR_AMBER:CLR_WHITE;
   bool hasReason=(currentStatus=="降落"&&landingTimeStr.length()>0&&landingReason.length()>0);
   // 塔台來訊時間放在內容上方（跟 line 一樣）；降落畫面資訊較密，這行略過（待命畫面仍會顯示）
@@ -1369,7 +1373,7 @@ void drawMessage(){
   M5.Display.fillScreen(CLR_BG); drawTopBar();
   M5.Display.fillRect(0,32,320,26,CLR_ACCENT);
   fXs(); M5.Display.setTextDatum(middle_center); M5.Display.setTextColor(CLR_BG);
-  M5.Display.drawString("塔台訊息",160,45);
+  M5.Display.drawString(notamCount>1&&notamCode.length()>0?("塔台訊息 · "+notamCode):"塔台訊息",160,45);
   // 發送時間放在訊息內容上方（跟 line 一樣）
   if(lastMessageTime.length()>0){
     fXs(); M5.Display.setTextDatum(middle_center); M5.Display.setTextColor(CLR_GRAY);
@@ -1622,7 +1626,7 @@ void handleKeypadTouch2(int tx,int ty){
             String o;serializeJson(doc,o);wsClient.sendTXT(o);
             keypadMode=KP_NONE;
             if(notamHadValue){ currentScreen=SCR_TURNPOINT_CONFIRM; drawTurnpointConfirm(); beep2(); }
-            else { drawIdle(); beep2(); }
+            else { currentScreen=SCR_IDLE; drawIdle(); beep2(); } // 從 SCR_COMMAND 點進來編輯也要把 currentScreen 撥回IDLE，跟畫面同步
           }
         } else { M5.Display.fillRect(40,200,240,26,CLR_BG); fXs();M5.Display.setTextDatum(middle_center); M5.Display.setTextColor(CLR_RED); M5.Display.drawString("請輸入4個數字",160,213); }
         return;
@@ -1824,7 +1828,7 @@ void handleButtons(){
     if(screenDimmed){ M5.Display.setBrightness(BRIGHT_VAL[brightnessLevel]); screenDimmed=false; return; }
   }
   if(M5.BtnA.wasClicked()){
-    if(keypadMode!=KP_NONE){keypadMode=KP_NONE;drawIdle();return;}
+    if(keypadMode!=KP_NONE){keypadMode=KP_NONE; notamAddMode=false; if(currentScreen==SCR_COMMAND) drawCommand(); else { currentScreen=SCR_IDLE; drawIdle(); } return;}
     if(currentScreen==SCR_NAME_INPUT&&kbTarget=="rename"){ currentScreen=renameReturnScreen; if(currentScreen==SCR_COMMAND) drawCommand(); else { currentScreen=SCR_IDLE; drawIdle(); } return; }
     if(currentScreen==SCR_NAME_INPUT&&kbTarget=="rename_mode"){ currentScreen=SCR_MODE_SELECT; drawModeSelect(); return; }
     if(currentScreen==SCR_WIFI_PASS){ currentScreen=SCR_WIFI_SCAN; drawWifiList(); return; }
