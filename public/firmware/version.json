@@ -1,5 +1,5 @@
 {
-  "version": 29,
-  "notes": "降落倒數剩1分鐘/10秒內提醒；修正指令畫面點名字沒反應、斷網重連跑錯畫面、WiFi頻繁斷線；模式選擇加入更換WiFi",
+  "version": 30,
+  "notes": "更多選單字縮小、關機按鈕改一行不重疊",
   "url": "https://droneatis-production.up.railway.app/firmware/esp32_pilot.bin"
 }

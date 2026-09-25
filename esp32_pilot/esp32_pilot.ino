@@ -23,7 +23,7 @@
 #define GPS_RX_PIN    32   // Core2 PORT.A（外接I2C腳位，這裡改當UART用；訊號1=RXD）
 #define GPS_TX_PIN    33   // Core2 PORT.A（訊號2=TXD）
 #define GPS_BAUD      115200
-#define FW_VERSION    29
+#define FW_VERSION    30
 #define UPDATE_CHECK_URL "https://droneatis-production.up.railway.app/firmware/version.json"
 
 // ── NVS 儲存 ─────────────────────────────────────────────────────────────────
@@ -1193,30 +1193,31 @@ void drawMoreMenu(){
   moreMenuReturnScreen=currentScreen;
   currentScreen=SCR_MORE_MENU;
   M5.Display.fillScreen(CLR_BG); M5.Display.setTextDatum(middle_center);
-  fLg(); M5.Display.setTextColor(CLR_ACCENT); M5.Display.drawString("更多功能",160,28);
+  M5.Display.setFont(&fonts::efontTW_24); M5.Display.setTextSize(1.3);
+  M5.Display.setTextColor(CLR_ACCENT); M5.Display.drawString("更多功能",160,26);
+  // 選單按鈕字級統一縮小一點（0.85），避免太擠
 
   if(pilotMode==MODE_MASTER){
     // 結束任務
     M5.Display.fillRoundRect(20,48,280,38,10,CLR_SURFACE); M5.Display.drawRoundRect(20,48,280,38,10,CLR_GRAY);
-    fSm(); M5.Display.setTextColor(CLR_WHITE); M5.Display.drawString("結束任務",160,67);
+    M5.Display.setFont(&fonts::efontTW_24); M5.Display.setTextSize(0.85);
+    M5.Display.setTextColor(CLR_WHITE); M5.Display.drawString("結束任務",160,67);
     // GPS 開關
     M5.Display.fillRoundRect(20,90,280,38,10,CLR_SURFACE); M5.Display.drawRoundRect(20,90,280,38,10,CLR_GRAY);
     M5.Display.setTextColor(gpsEnabled?CLR_GREEN:CLR_WHITE);
     M5.Display.drawString(String("GPS：")+(gpsEnabled?"開啟":"關閉"),160,109);
-    // 關機（結束任務前不可用）
+    // 關機（結束任務前不可用；文字縮成一行，不要疊兩行擠在一起）
     uint16_t poColor=sessionEnded?CLR_RED:CLR_GRAY;
     M5.Display.fillRoundRect(20,132,280,38,10,CLR_SURFACE); M5.Display.drawRoundRect(20,132,280,38,10,poColor);
-    if(sessionEnded){ M5.Display.setTextColor(poColor); M5.Display.drawString("關機",160,151); }
-    else {
-      fSm(); M5.Display.setTextColor(poColor); M5.Display.drawString("關機",160,145);
-      fXs(); M5.Display.drawString("請先結束任務",160,161);
-    }
+    M5.Display.setTextColor(poColor);
+    M5.Display.drawString(sessionEnded?"關機":"關機（先結束任務）",160,151);
     // 返回選擇模式
-    fSm(); M5.Display.fillRoundRect(20,174,280,38,10,CLR_SURFACE); M5.Display.drawRoundRect(20,174,280,38,10,CLR_GRAY);
+    M5.Display.fillRoundRect(20,174,280,38,10,CLR_SURFACE); M5.Display.drawRoundRect(20,174,280,38,10,CLR_GRAY);
     M5.Display.setTextColor(CLR_WHITE); M5.Display.drawString("返回選擇模式",160,193);
   } else {
     M5.Display.fillRoundRect(20,80,280,50,10,CLR_SURFACE); M5.Display.drawRoundRect(20,80,280,50,10,CLR_RED);
-    fSm(); M5.Display.setTextColor(CLR_RED); M5.Display.drawString("關機",160,105);
+    M5.Display.setFont(&fonts::efontTW_24); M5.Display.setTextSize(0.85);
+    M5.Display.setTextColor(CLR_RED); M5.Display.drawString("關機",160,105);
     M5.Display.fillRoundRect(20,142,280,50,10,CLR_SURFACE); M5.Display.drawRoundRect(20,142,280,50,10,CLR_GRAY);
     M5.Display.setTextColor(CLR_WHITE); M5.Display.drawString("返回選擇模式",160,167);
   }

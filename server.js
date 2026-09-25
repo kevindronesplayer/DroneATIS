@@ -106,7 +106,12 @@ function generateReport(){
       g.pendingTakeoff=null;
     }
   });
-  const rows=Object.values(byKey).map(g=>{
+  // 依飛手名字分組排序（同一飛手的多天紀錄要連在一起，不要跟其他飛手的紀錄交錯）
+  const groups=Object.values(byKey).sort((a,b)=>{
+    if(a.pilotName!==b.pilotName) return a.pilotName<b.pilotName?-1:1;
+    return a.date<b.date?-1:(a.date>b.date?1:0);
+  });
+  const rows=groups.map(g=>{
     const opTime=(g.notamStartTime&&g.sessionEndTime)?(g.notamStartTime.replace(':','')+'-'+g.sessionEndTime.replace(':','')):'';
     return [
       g.date, '', TOWER_TYPE_LABEL[g.towerType]||g.towerType||'', g.towerName||'',
@@ -525,6 +530,13 @@ wss.on('connection',ws=>{
           const ep=pilots.get(clientId);
           // 配對狀態只在「同一天」內自動延續；跨天視為過期，要求塔台重新輸入序號
           const lastSeenSameDay=ep.lastSeen&&(new Date(ep.lastSeen).toLocaleDateString('zh-TW',{timeZone:TZ})===todayStr());
+          // 上次是按結束作業換到這組新序號的，等於重新開一輪：不沿用舊的塔台配對，要塔台用新序號重新加入；
+          // 飛航公告、狀態、回應標籤也一併清空，不要延續結束前那輪的舊資料
+          if(ep.pendingReset){
+            ep.pendingReset=false;
+            ep.notam=''; ep.status='開機預備'; ep.ackStatus=''; ep.hasCommand=false;
+            ep.towerConnected=false;
+          }
           const wasTowerConnected=ep.towerConnected&&lastSeenSameDay;
           if(!wasTowerConnected) ep.towerConnected=false;
           ep.wifi=true; ep.lastSeen=Date.now();
@@ -607,7 +619,9 @@ wss.on('connection',ws=>{
         const pilot=pilots.get(conn.clientId);
         if(pilot){
           pilot.codeGen=(pilot.codeGen||0)+1; // 結束作業後序號要換掉，下次 pilot_register 才不會算出同一組舊序號
+          pilot.pendingReset=true; // 下次用新序號重新註冊時，飛航公告/狀態要清空，不要延續這輪舊資料
           pilot.status='結束作業'; // 讓塔台飛手列表的狀態欄也顯示，不要停在結束前最後一個狀態
+          pilot.ackStatus='session_ended'; // 讓右側標籤（跟已起飛/已降落同一區）也顯示「結束作業」
           pilot.hasCommand=true;
           const {tName,tType}=getActiveTower(pilot);
           flightLog.push({date:todayStr(),groupName:groupName(pilot.groupId),pilotName:dispName(pilot),type:'session_end',time:nowTimeStr(),rwy:pilot.rwy||'',towerName:tName,towerType:tType});

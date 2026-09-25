@@ -103,10 +103,13 @@ body{font-family:-apple-system,'Noto Sans TC',sans-serif;background:var(--bg);co
 
 /* 單人模式：指令按鈕 */
 .cmd-btn-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:6px;}
-.cmd-btn{background:var(--sf2);border:1px solid var(--bd);color:var(--tx);border-radius:var(--rs);padding:14px 3px;font-size:14px;letter-spacing:-.3px;font-weight:600;cursor:pointer;font-family:inherit;text-align:center;white-space:nowrap;}
+.cmd-btn{position:relative;overflow:hidden;background:var(--sf2);border:1px solid var(--bd);color:var(--tx);border-radius:var(--rs);padding:14px 3px;font-size:14px;letter-spacing:-.3px;font-weight:600;cursor:pointer;font-family:inherit;text-align:center;white-space:nowrap;}
 .cmd-btn:active{opacity:.7;}
 .cmd-btn.active{border-color:var(--ac);background:var(--sf3);color:var(--ac);}
 .cmd-btn:disabled{opacity:.28;cursor:not-allowed;}
+.cmd-btn .fill{position:absolute;inset:0;background:var(--ac);width:0%;z-index:0;pointer-events:none;opacity:.5;}
+.cmd-btn.charging .fill{width:100%;transition:width .5s linear;}
+.cmd-btn .lbl{position:relative;z-index:1;}
 
 /* 多人模式：上方飛手狀態橫條（每人自帶公告/跑道/分類/跟隨者） + 底部發送區 */
 #pilotsList.multi{padding-bottom:16px;} /* JS 依發送區實際高度動態加大 */
@@ -380,6 +383,7 @@ const ACK_MAP={
   'takeoff':['takeoff','已起飛 ✈'],
   'landing_ack':['land','收到降落指令'],
   'landing_done':['done','已降落 ✓'],
+  'session_ended':['done','結束作業'],
 };
 
 function connect(){
@@ -760,19 +764,22 @@ function bindComposerOnce(){
     showToast('訊息已發送'); mi.value='';
   };
   // 長按0.5秒才送出，避免手滑誤按發錯訊息給飛手
-  const sendBtn=document.getElementById('mcMsgSend');
+  bindLongPress(document.getElementById('mcMsgSend'),doMsg);
+  mi.addEventListener('keydown',e=>{ if(e.key==='Enter') doMsg(); });
+}
+// 通用長按綁定（0.5秒，帶進度條動畫），發送訊息按鈕和下面的狀態按鈕都要長按才觸發，避免手滑誤按
+function bindLongPress(el,onTrigger){
   let pressTimer=null;
   const startPress=(e)=>{
     e.preventDefault();
-    if(sendBtn.disabled) return;
-    sendBtn.classList.add('charging');
-    pressTimer=setTimeout(()=>{ sendBtn.classList.remove('charging'); doMsg(); },500);
+    if(el.disabled) return;
+    el.classList.add('charging');
+    pressTimer=setTimeout(()=>{ el.classList.remove('charging'); onTrigger(); },500);
   };
-  const cancelPress=()=>{ clearTimeout(pressTimer); sendBtn.classList.remove('charging'); };
-  sendBtn.addEventListener('mousedown',startPress);
-  sendBtn.addEventListener('touchstart',startPress,{passive:false});
-  ['mouseup','mouseleave','touchend','touchcancel'].forEach(ev=>sendBtn.addEventListener(ev,cancelPress));
-  mi.addEventListener('keydown',e=>{ if(e.key==='Enter') doMsg(); });
+  const cancelPress=()=>{ clearTimeout(pressTimer); el.classList.remove('charging'); };
+  el.addEventListener('mousedown',startPress);
+  el.addEventListener('touchstart',startPress,{passive:false});
+  ['mouseup','mouseleave','touchend','touchcancel'].forEach(ev=>el.addEventListener(ev,cancelPress));
 }
 // 完整重畫底部發送區（切換選中飛手時用）
 function renderComposer(){
@@ -800,10 +807,11 @@ function syncComposer(){
   const grid=document.getElementById('mcBtnGrid');
   grid.innerHTML=STATUSES.map(s=>{
     const dis=locked && !(s==='降落'||s==='馬上降落');
-    return `<button class="cmd-btn ${p.status===s?'active':''}" data-status="${s}" ${dis?'disabled':''}>${s}</button>`;
+    return `<button class="cmd-btn ${p.status===s?'active':''}" data-status="${s}" ${dis?'disabled':''}><span class="fill"></span><span class="lbl">${s}</span></button>`;
   }).join('');
+  // 長按0.5秒才觸發，避免在飛手列表快速滑動/點選時誤觸發送指令
   grid.querySelectorAll('.cmd-btn').forEach(b=>{
-    b.addEventListener('click',()=>{ if(!b.disabled) handleStatusAction(selectedCid,b.dataset.status); });
+    bindLongPress(b,()=>{ if(!b.disabled) handleStatusAction(selectedCid,b.dataset.status); });
   });
   const mi=document.getElementById('mcMsgInput');
   mi.disabled=locked; mi.placeholder=locked?'降落鎖定中，無法發送訊息':'輸入訊息給選中的飛手…';
