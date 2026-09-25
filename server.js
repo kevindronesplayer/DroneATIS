@@ -418,6 +418,23 @@ wss.on('connection',ws=>{
         break;
       }
 
+      case 'tower_delete_pilot_log':{
+        // 刪除某飛手（某一天）的飛行紀錄；commLog 依歸屬塔台過濾，flightLog 本來就沒有分塔台（下載報表也是全部混在一起）
+        const {pilotName,date}=msg;
+        if(!pilotName) return;
+        const tid=conn.towerId||null;
+        for(let i=commLog.length-1;i>=0;i--){
+          const e=commLog[i];
+          if(e.pilotName===pilotName && (!date||e.date===date) && (!tid||!e.ownerTowerId||e.ownerTowerId===tid)) commLog.splice(i,1);
+        }
+        for(let i=flightLog.length-1;i>=0;i--){
+          const e=flightLog[i];
+          if(e.pilotName===pilotName && (!date||e.date===date)) flightLog.splice(i,1);
+        }
+        bcast({type:'pilot_log_deleted',pilotName,date},c=>c&&c.role==='tower'&&(!c.towerId||c.towerId===tid));
+        break;
+      }
+
       case 'tower_assign_group':{
         const {clientId,groupId}=msg;
         const pilot=pilots.get(clientId); if(!pilot) return;
