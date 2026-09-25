@@ -23,7 +23,7 @@
 #define GPS_RX_PIN    32   // Core2 PORT.A（外接I2C腳位，這裡改當UART用；訊號1=RXD）
 #define GPS_TX_PIN    33   // Core2 PORT.A（訊號2=TXD）
 #define GPS_BAUD      115200
-#define FW_VERSION    28
+#define FW_VERSION    29
 #define UPDATE_CHECK_URL "https://droneatis-production.up.railway.app/firmware/version.json"
 
 // ── NVS 儲存 ─────────────────────────────────────────────────────────────────
@@ -73,9 +73,12 @@ unsigned long ackReceivedAt = 0;
 unsigned long ackDeadline   = 0;
 unsigned long lastHeartbeat = 0;
 unsigned long lastConnCheck = 0;
+unsigned long lastWifiBeginAt = 0;
 unsigned long lastTimeUpd   = 0;
 unsigned long lastBuzzAt    = 0;
 int buzzPhase = 0;
+bool landing60Fired = false;   // 降落倒數剩1分鐘的提醒只叫一次
+int landingLastAlertSec = -1;  // 剩10秒以內，記錄上次已經叫過的那一秒，確保每一秒只叫一次
 unsigned long rwyNoticeUntil = 0;
 unsigned long followerConfirmUntil = 0;  // 主控收到飛聚跟隨回報訊息，顯示到這個時間就清掉
 unsigned long lastActivity = 0;
@@ -116,6 +119,8 @@ enum Screen {
 };
 Screen currentScreen = SCR_BOOT;
 Screen moreMenuReturnScreen = SCR_IDLE;  // 開啟「更多」選單前所在的畫面，關閉後要回去
+Screen renameReturnScreen = SCR_IDLE;    // 點名字改名前所在的畫面（IDLE 或 COMMAND），改完要回去
+Screen wifiChangeReturnScreen = SCR_IDLE; // 點「更換WiFi」前所在的畫面，取消要回去
 Screen powerOffReturnScreen = SCR_IDLE;  // 開啟關機確認前所在的畫面，取消後要回去
 bool sessionEnded = false;  // 主控是否已按過「結束任務」，關機前必須先結束任務
 
@@ -592,6 +597,9 @@ void drawModeSelect(){
   M5.Display.fillRoundRect(240,4,76,30,7,CLR_SURFACE); M5.Display.drawRoundRect(240,4,76,30,7,CLR_RED);
   fSm(); M5.Display.setTextDatum(middle_center); M5.Display.setTextColor(CLR_RED);
   M5.Display.drawString("關機",278,18);
+  // WiFi鍵（左上角）：連不上網路、卡在這頁選不了模式時，不用先硬選一個模式才能改 WiFi
+  M5.Display.fillRoundRect(4,4,70,30,7,CLR_SURFACE); M5.Display.drawRoundRect(4,4,70,30,7,CLR_ACCENT);
+  M5.Display.setTextColor(CLR_ACCENT); M5.Display.drawString("WiFi",39,18);
   // 說明文字用縮小字避免爆框
   #define MSSUB(txt,cy,col) do{ M5.Display.setFont(&fonts::efontTW_24); M5.Display.setTextSize(0.62); M5.Display.setTextColor(col); M5.Display.drawString(txt,160,cy); }while(0)
   // 主控模式
@@ -825,7 +833,11 @@ void webSocketEvent(WStype_t wsType, uint8_t* payload, size_t length){
         // 斷線重連（WiFi掉線/重開機）沿用伺服器記住的飛航公告/跑道，不要被重設成空白
         if(doc.containsKey("notam")) notamCode=doc["notam"]|"";
         if(doc.containsKey("rwy")) rwyDir=doc["rwy"]|"";
-        currentScreen=SCR_IDLE; drawIdle(); beep3();
+        // 如果斷線當下正在降落流程（還沒按收到降落指令，或已經在倒數還沒回報完成），
+        // 重連不能硬切回 SCR_IDLE——那個畫面沒有降落回報按鈕，飛手會卡住回報不了
+        if(landState==LAND_WAIT_ACK||landState==LAND_COUNTDOWN){ currentScreen=SCR_COMMAND; drawCommand(); }
+        else { currentScreen=SCR_IDLE; drawIdle(); }
+        beep3();
       }
       else if(type=="tower_info"){ // 塔台改南北塔或名字
         towerName=doc["towerName"]|towerName; towerType=doc["towerType"]|towerType;
@@ -944,7 +956,14 @@ void beep3(){ buzz(880,100);delay(100);buzz(1100,100);delay(100);buzz(1320,150);
 
 void handleBuzzer(unsigned long now){
   if(pilotMode==MODE_FOLLOWER) return;
-  if(landState==LAND_COUNTDOWN){ int diff=landDiffSec(); if(diff<=0&&now-lastBuzzAt>1500){buzz(800,1200);lastBuzzAt=now;} return; }
+  if(landState==LAND_COUNTDOWN){
+    int diff=landDiffSec();
+    if(diff<=0&&now-lastBuzzAt>1500){buzz(800,1200);lastBuzzAt=now;}
+    else if(diff<=60&&diff>10&&!landing60Fired){ landing60Fired=true; buzz(900,200); } // 剩1分鐘提醒一次
+    else if(diff<=10&&diff>0&&diff!=landingLastAlertSec){ landingLastAlertSec=diff; buzz(1000,150); } // 剩10秒內每秒叫一次
+    return;
+  }
+  landing60Fired=false; landingLastAlertSec=-1; // 不在倒數狀態，重置，下一輪降落才會重新提醒
   if(!ackPending){buzzPhase=0;return;}
   unsigned long e=now-ackReceivedAt;
   if(e>10000&&e<30000&&buzzPhase<1) buzzPhase=1;
@@ -1209,6 +1228,7 @@ void drawMoreMenu(){
 }
 
 void drawWifiChangeConfirm(){
+  wifiChangeReturnScreen=currentScreen; // 記住從哪個畫面點進來的，取消要回得去
   currentScreen=SCR_WIFI_CHANGE_CONFIRM;
   M5.Display.fillRect(0,172,320,68,CLR_SURFACE); M5.Display.drawRect(0,172,320,68,CLR_ACCENT);
   fXs(); M5.Display.setTextDatum(middle_center); M5.Display.setTextColor(CLR_WHITE);
@@ -1255,7 +1275,13 @@ void updateClock(){
 
 // ── checkConnection ──────────────────────────────────────────────────────────
 void checkConnection(){
-  if(WiFi.status()!=WL_CONNECTED){ wsConnecting=false; WiFi.begin(savedSSID.c_str(),savedPassword.c_str()); return; }
+  if(WiFi.status()!=WL_CONNECTED){
+    wsConnecting=false;
+    // checkConnection() 每3秒跑一次；如果每次斷線都立刻重打 WiFi.begin()，等於每3秒打斷一次還在
+    // 進行中的連線協商，反而永遠連不穩、一直斷線重連。至少間隔久一點再重試一次
+    if(millis()-lastWifiBeginAt>10000){ lastWifiBeginAt=millis(); WiFi.begin(savedSSID.c_str(),savedPassword.c_str()); }
+    return;
+  }
   if(!wsConnected && !wsConnecting){
     wsConnecting=true;
     if(IS_FOLLOWER_CONN) connectWebSocketFollower();
@@ -1444,7 +1470,7 @@ void onKeyboardConfirm(){
     pilotDisplayName=""; saveDisplayName(""); // 機身重新命名，蓋掉手機主控輔助之前設定的顯示名字，避免又被蓋回去
     StaticJsonDocument<128> doc; doc["type"]=IS_FOLLOWER_CONN?"follower_rename":"pilot_rename"; doc["name"]=pilotName;
     String o; serializeJson(doc,o); wsClient.sendTXT(o);
-    currentScreen=SCR_IDLE; drawIdle();
+    currentScreen=renameReturnScreen; if(currentScreen==SCR_COMMAND) drawCommand(); else { currentScreen=SCR_IDLE; drawIdle(); }
   }
   else if(kbTarget=="rename_mode"){ pilotName=kbBuffer; saveName(pilotName); currentScreen=SCR_MODE_SELECT; drawModeSelect(); }
   else if(kbTarget=="password"){ savedPassword=kbBuffer; saveWifi(pendingSSID,savedPassword); connectWiFiSaved(); }
@@ -1465,6 +1491,7 @@ void handleTouch(){
   if(currentScreen==SCR_NAME_INPUT||currentScreen==SCR_WIFI_PASS||currentScreen==SCR_FOLLOWER_CODE){ handleKeyboardTouch(tx,ty); return; }
   if(currentScreen==SCR_MODE_SELECT){
     if(ty<=36&&tx>=232){ drawPoweroffConfirm(); return; } // 右上角關機
+    if(ty<=36&&tx<74){ drawWifiChangeConfirm(); return; } // 左上角更換WiFi
     if(ty>=36&&ty<60&&tx<230){ kbBuffer=pilotName; kbHint="更改飛手名字（英文小寫）"; kbTarget="rename_mode"; kbShift=false; kbPage=0; kbMaxLen=10; currentScreen=SCR_NAME_INPUT; drawKeyboard(); return; }
     if(ty>=62&&ty<=118){ pilotMode=MODE_MASTER; connectWebSocket(); }
     else if(ty>=124&&ty<=180){ pilotMode=MODE_FOLLOWER; gpsEnabled=false; gpsFixed=false; drawFollowerInput(); }
@@ -1475,7 +1502,7 @@ void handleTouch(){
     // WiFi 狀態燈：點擊可重新選擇 WiFi
     if(tx>=250&&tx<=272&&ty<=30){ drawWifiChangeConfirm(); return; }
     // 名字觸控改名（主控）：畫面現在顯示的是哪個名字（可能是手機主控輔助設定的），編輯就從那個開始，不要跳回舊的
-    if(tx>=40&&tx<182&&ty<32&&pilotMode==MODE_MASTER){ kbBuffer=pilotDisplayName.length()>0?pilotDisplayName:pilotName; kbHint="更改飛手名字（英文小寫）"; kbTarget="rename"; kbShift=false; kbPage=0; kbMaxLen=10; currentScreen=SCR_NAME_INPUT; drawKeyboard(); return; }
+    if(tx>=40&&tx<182&&ty<32&&pilotMode==MODE_MASTER){ renameReturnScreen=currentScreen; kbBuffer=pilotDisplayName.length()>0?pilotDisplayName:pilotName; kbHint="更改飛手名字（英文小寫）"; kbTarget="rename"; kbShift=false; kbPage=0; kbMaxLen=10; currentScreen=SCR_NAME_INPUT; drawKeyboard(); return; }
     // GPS
     if(tx>232&&tx<314&&ty>34&&ty<56){ if(pilotMode==MODE_MASTER){ gpsEnabled=!gpsEnabled; if(!gpsEnabled)gpsFixed=false; drawGpsBtn(); sendHeartbeat(); } }
     // 公告
@@ -1504,7 +1531,7 @@ void handleTouch(){
     else { doPoweroff(); }
   }
   else if(currentScreen==SCR_WIFI_CHANGE_CONFIRM){
-    if(tx<160){ currentScreen=SCR_IDLE; drawIdle(); }
+    if(tx<160){ currentScreen=wifiChangeReturnScreen; if(currentScreen==SCR_MODE_SELECT) drawModeSelect(); else { currentScreen=SCR_IDLE; drawIdle(); } }
     else { startWifiScan(); }
   }
   else if(currentScreen==SCR_UPDATE_CONFIRM){
@@ -1525,6 +1552,9 @@ void handleTouch(){
     }
   }
   else if(currentScreen==SCR_COMMAND){
+    // 名字觸控改名（主控）：SCR_IDLE 早就有這個功能，但收到指令切到 SCR_COMMAND 後這裡漏了同一個熱區，
+    // 導致正在作業中（畫面幾乎都停在這頁）點名字完全沒反應，像是壞掉一樣
+    if(tx>=40&&tx<182&&ty<32&&pilotMode==MODE_MASTER){ renameReturnScreen=currentScreen; kbBuffer=pilotDisplayName.length()>0?pilotDisplayName:pilotName; kbHint="更改飛手名字（英文小寫）"; kbTarget="rename"; kbShift=false; kbPage=0; kbMaxLen=10; currentScreen=SCR_NAME_INPUT; drawKeyboard(); return; }
     if(tx<230&&ty>58&&ty<78&&pilotMode==MODE_MASTER){ notamHadValue=notamCode.length()>0; keypadMode=KP_NOTAM; keypadBuffer=notamCode.length()>0?notamCode.substring(1):""; drawKeypad(); return; }
     if(ty>164&&tx>40&&tx<280&&NEEDS_ACK){
       if(landState==LAND_WAIT_ACK){ submitAck("landing_ack"); ackPending=false; buzzPhase=0; landState=LAND_COUNTDOWN; drawCommand(); buzz(880,150); }
@@ -1545,13 +1575,13 @@ void handleButtons(){
   }
   if(M5.BtnA.wasClicked()){
     if(keypadMode!=KP_NONE){keypadMode=KP_NONE;drawIdle();return;}
-    if(currentScreen==SCR_NAME_INPUT&&kbTarget=="rename"){ currentScreen=SCR_IDLE; drawIdle(); return; }
+    if(currentScreen==SCR_NAME_INPUT&&kbTarget=="rename"){ currentScreen=renameReturnScreen; if(currentScreen==SCR_COMMAND) drawCommand(); else { currentScreen=SCR_IDLE; drawIdle(); } return; }
     if(currentScreen==SCR_NAME_INPUT&&kbTarget=="rename_mode"){ currentScreen=SCR_MODE_SELECT; drawModeSelect(); return; }
     if(currentScreen==SCR_WIFI_PASS){ currentScreen=SCR_WIFI_SCAN; drawWifiList(); return; }
     if(currentScreen==SCR_FOLLOWER_CODE){ pilotMode=MODE_NONE; currentScreen=SCR_MODE_SELECT; drawModeSelect(); return; }
     if(currentScreen==SCR_TURNPOINT_CONFIRM){ currentScreen=SCR_IDLE; drawIdle(); return; }
     if(currentScreen==SCR_POWEROFF_CONFIRM){ returnFromPoweroff(); return; }
-    if(currentScreen==SCR_WIFI_CHANGE_CONFIRM){ currentScreen=SCR_IDLE; drawIdle(); return; }
+    if(currentScreen==SCR_WIFI_CHANGE_CONFIRM){ currentScreen=wifiChangeReturnScreen; if(currentScreen==SCR_MODE_SELECT) drawModeSelect(); else { currentScreen=SCR_IDLE; drawIdle(); } return; }
     if(currentScreen==SCR_UPDATE_CONFIRM){ currentScreen=SCR_MODE_SELECT; drawModeSelect(); return; }
     if(currentScreen==SCR_MORE_MENU){ currentScreen=moreMenuReturnScreen; if(currentScreen==SCR_COMMAND) drawCommand(); else { currentScreen=SCR_IDLE; drawIdle(); } return; }
     if(currentScreen==SCR_NAME_INPUT||currentScreen==SCR_WIFI_SCAN) return;

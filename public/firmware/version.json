@@ -1,5 +1,5 @@
 {
-  "version": 28,
-  "notes": "點進機身改名畫面會顯示目前實際顯示的名字（含手機設定過的），機身重新命名後不會再被手機舊名字蓋回去",
+  "version": 29,
+  "notes": "降落倒數剩1分鐘/10秒內提醒；修正指令畫面點名字沒反應、斷網重連跑錯畫面、WiFi頻繁斷線；模式選擇加入更換WiFi",
   "url": "https://droneatis-production.up.railway.app/firmware/esp32_pilot.bin"
 }

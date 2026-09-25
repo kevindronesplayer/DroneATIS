@@ -36,6 +36,9 @@ const pilots = new Map();
 const groups = new Map();
 const flightLog = [];
 const commLog = [];
+// clientId -> 目前這輪未定案的降落 flightLog 條目參照（不放進 pilots 裡，避免被廣播出去）；
+// 讓「起飛後塔台多次送降落更新時間」只改同一筆，見 applyStatus()
+const pendingLandingEntry = new Map();
 let groupCounter = 1;
 // 持久化的塔台名稱/類型：改用單一保存值而不是每次即時掃描connections，
 // 避免掃描當下剛好抓不到還沒設定role的tower連線、造成飛手端顯示不到真正的塔台名稱
@@ -60,11 +63,13 @@ function todayMidnight(){
   const dayStart=Math.floor(shifted/86400000)*86400000;
   return dayStart+86400000-1-TZ_OFFSET_MS;
 }
-// 根據飛手名稱+今天日期，產生固定四碼序號
-// 日期用「台灣日期」，與 todayMidnight()/todayStr() 一致，避免 UTC 換日（台灣早上8點）時序號跳掉
-function dailyCodeForPilot(name){
+// 根據飛手名稱+今天日期+這一輪代數，產生四碼序號
+// 日期用「台灣日期」，與 todayMidnight()/todayStr() 一致，避免 UTC 換日（台灣早上8點）時序號跳掉。
+// gen（代數）平常都是 0，同一天內只要不按結束作業，重連（掉線/開機）序號都不變；
+// 按了結束作業才 +1，這樣下午想繼續作業重新註冊時序號會換掉，早上那組舊序號就失效了
+function dailyCodeForPilot(name,gen){
   const dateStr=new Date().toLocaleDateString('en-CA',{timeZone:TZ}); // YYYY-MM-DD（台灣）
-  const seed=name+dateStr; let hash=0;
+  const seed=name+dateStr+':'+(gen||0); let hash=0;
   for(let i=0;i<seed.length;i++) hash=(hash*31+seed.charCodeAt(i))>>>0;
   let c=''; for(let i=0;i<4;i++){ c+=ARROWS[hash%4]; hash=Math.floor(hash/4); }
   return c;
@@ -239,9 +244,17 @@ function applyStatus(pilot,status,landingTime){
   if(status==='可以起飛'){
     pilot.takeoffTime=new Date().toISOString();
     flightLog.push({date:todayStr(),groupName:gn,pilotName:dispName(pilot),type:'takeoff',time:nowTimeStr(),rwy:pilot.rwy||'',towerName:tName,towerType:tType});
+    pendingLandingEntry.delete(pilot.clientId); // 新一輪起飛，之前殘留的降落紀錄參照要丟掉，不要被下一次降落誤更新到
   }
   if(status==='降落'){
-    flightLog.push({date:todayStr(),groupName:gn,pilotName:dispName(pilot),type:'landing',time:nowTimeStr(),rwy:pilot.rwy||'',towerName:tName,towerType:tType});
+    // 起飛後塔台可能重複送「降落」更新時間，飛行紀錄只留最後一筆，不要每送一次就多一筆配對紀錄
+    const existing=pendingLandingEntry.get(pilot.clientId);
+    if(existing){ existing.time=nowTimeStr(); }
+    else{
+      const entry={date:todayStr(),groupName:gn,pilotName:dispName(pilot),type:'landing',time:nowTimeStr(),rwy:pilot.rwy||'',towerName:tName,towerType:tType};
+      flightLog.push(entry);
+      pendingLandingEntry.set(pilot.clientId,entry);
+    }
     pilot.landingLocked=true; // 送出降落/馬上降落後鎖定，飛手回報降落前塔台不能再發其他指令/訊息給這個飛手
   }
   pushComm(dispName(pilot),'tower',status+(landingTime?(' '+landingTime):''));
@@ -434,7 +447,8 @@ wss.on('connection',ws=>{
             return;
           }
           conn.role='monitor'; conn.clientId='m_'+generateClientId(); conn.masterClientId=masterPilot.clientId; conn.followerName=name;
-          ws.send(JSON.stringify({type:'monitor_registered', masterName:dispName(masterPilot), towerName:getTowerName(), towerType:getTowerType()}));
+          const {tName:monTName,tType:monTType}=getActiveTower(masterPilot);
+          ws.send(JSON.stringify({type:'monitor_registered', masterName:dispName(masterPilot), towerName:monTName, towerType:monTType}));
           monitorUpdate(masterPilot.clientId);
           break;
         }
@@ -445,13 +459,15 @@ wss.on('connection',ws=>{
         masterPilot.followers=masterPilot.followers.filter(f=>f.name!==name);
         masterPilot.followers.push({clientId:fid, name, gather:!!msg.gather, stage:'', pending:false});
         monitorUpdate(masterPilot.clientId);
-        // 送出已連線
+        // 送出已連線；塔台名稱/類型要用「這位主控實際歸屬的塔台」，多塔台同時運作時
+        // getTowerName()/getTowerType() 只會回傳全域最後更新的那組，跟隨者重連時可能連到別台塔台的名字
+        const {tName:followerTName,tType:followerTType}=getActiveTower(masterPilot);
         ws.send(JSON.stringify({
           type:'follower_registered',
           clientId:fid,
           groupName:groupName(masterPilot.groupId),
-          towerName: getTowerName(),
-          towerType: getTowerType(),
+          towerName: followerTName,
+          towerType: followerTType,
           status: masterPilot.status,
           landingTime: masterPilot.landingTime,
           lastMessage: masterPilot.lastMessage||'',
@@ -492,12 +508,14 @@ wss.on('connection',ws=>{
 
       case 'pilot_register':{
         const pilotName=msg.name||'未知飛手';
-        const roomCode=dailyCodeForPilot(pilotName);  // 每天固定序號
         const expiry=todayMidnight();
 
         // 若同名飛手已存在（斷線重連），保留其資料
         let existingId=null;
         pilots.forEach((p,cid)=>{ if(p.name===pilotName) existingId=cid; });
+        // 序號要看這位飛手目前的「代數」算，不是單純日期+名字：
+        // 按過結束作業會讓代數+1，序號就會換掉；單純斷線重連（沒按結束作業）代數不變，序號維持一樣
+        const roomCode=dailyCodeForPilot(pilotName, existingId?(pilots.get(existingId).codeGen||0):0);
 
         let clientId;
         if(existingId){
@@ -527,7 +545,7 @@ wss.on('connection',ws=>{
           conn.role='pilot'; conn.clientId=clientId;
           pilots.set(clientId,{
             clientId,name:pilotName,roomCode,notam:'',rwy:'',
-            roomCodeExpiry:expiry,
+            roomCodeExpiry:expiry,codeGen:0,
             groupId:null,status:'開機預備',lastCommType:'status',hasCommand:false,wifi:true,gps:false,
             lat:null,lng:null,battery:msg.battery||100,lastMessage:'',
             lastSeen:Date.now(),ackPending:false,ackStatus:'',ackDeadline:null,
@@ -562,9 +580,9 @@ wss.on('connection',ws=>{
         pushComm(dispName(pilot),'pilot',ackLabelMap[ackType]||ackType);
         if(ackType==='landing_done'){
           pilot.ackPending=false; pilot.landingLocked=false; pilot.landingReported=true;
-          const gn=groupName(pilot.groupId);
-          const {tName,tType}=getActiveTower(pilot);
-          flightLog.push({date:todayStr(),groupName:gn,pilotName:dispName(pilot),type:'landing',time:nowTimeStr(),rwy:pilot.rwy||'',towerName:tName,towerType:tType});
+          // 飛行紀錄的降落時間已經在 applyStatus() 送出「降落」指令當下記過了（塔台最後一次送的時間），
+          // 這裡只是飛手確認，不要再多記一筆，只需要把參照清掉讓下一輪能重新建立
+          pendingLandingEntry.delete(pilot.clientId);
         }
         broadcastPilots();
         if(ackLabelMap[ackType]) pushToOwnerTower(conn.clientId,{title:'飛手回報',body:dispName(pilot)+' '+ackLabelMap[ackType]});
@@ -588,9 +606,13 @@ wss.on('connection',ws=>{
       case 'pilot_end_session':{
         const pilot=pilots.get(conn.clientId);
         if(pilot){
+          pilot.codeGen=(pilot.codeGen||0)+1; // 結束作業後序號要換掉，下次 pilot_register 才不會算出同一組舊序號
+          pilot.status='結束作業'; // 讓塔台飛手列表的狀態欄也顯示，不要停在結束前最後一個狀態
+          pilot.hasCommand=true;
           const {tName,tType}=getActiveTower(pilot);
           flightLog.push({date:todayStr(),groupName:groupName(pilot.groupId),pilotName:dispName(pilot),type:'session_end',time:nowTimeStr(),rwy:pilot.rwy||'',towerName:tName,towerType:tType});
           pushComm(dispName(pilot),'tower','任務結束');
+          broadcastPilots();
         }
         toOwnerTower(conn.clientId,{type:'session_ended',pilotName:pilot?dispName(pilot):msg.pilotName});
         pushToOwnerTower(conn.clientId,{title:'飛手回報',body:(pilot?dispName(pilot):msg.pilotName)+' 結束作業'});
@@ -702,6 +724,7 @@ wss.on('connection',ws=>{
         const {tName,tType}=getActiveTower(pilot);
         const ldTime=nowTimeStr().replace(':','');
         flightLog.push({date:todayStr(),groupName:gn,pilotName:dispName(pilot),type:'landing',time:ldTime,rwy:pilot.rwy||'',towerName:tName,towerType:tType});
+        pendingLandingEntry.delete(pilot.clientId); // 保險：這是飛手自己主動回報降落（沒有先前塔台指令），清掉任何殘留參照
         pushComm(dispName(pilot),'pilot','回報降落');
         broadcastPilots();
         toOwnerTower(conn.clientId,{type:'pilot_land_report',pilotName:dispName(pilot),clientId:conn.clientId});

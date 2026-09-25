@@ -71,8 +71,11 @@ body{font-family:-apple-system,'Noto Sans TC',sans-serif;background:var(--bg);co
 .msg-row{display:flex;align-items:center;gap:8px;margin-top:8px;}
 .msg-inline-input{flex:1;background:var(--sf2);border:1px solid var(--bd);color:var(--tx);border-radius:var(--rs);padding:8px 10px;font-size:16px;font-family:inherit;outline:none;}
 .msg-inline-input:focus{border-color:var(--ac);}
-.btn-msg-send{background:var(--sf3);border:1px solid var(--bd);color:var(--ac);border-radius:var(--rs);padding:8px 14px;font-size:18px;cursor:pointer;flex-shrink:0;}
+.btn-msg-send{position:relative;overflow:hidden;background:var(--sf3);border:1px solid var(--bd);color:var(--ac);border-radius:var(--rs);padding:8px 14px;font-size:18px;cursor:pointer;flex-shrink:0;}
 .btn-msg-send:active{background:var(--ac);color:#000;}
+.btn-msg-send .fill{position:absolute;inset:0;background:var(--ac);width:0%;z-index:0;pointer-events:none;}
+.btn-msg-send.charging .fill{width:100%;transition:width .5s linear;}
+.btn-msg-send span.lbl{position:relative;z-index:1;}
 /* 飛航公告 */
 .notam-row{display:flex;align-items:center;gap:6px;margin-top:8px;}
 .notam-prefix{font-size:18px;font-weight:700;color:var(--ac);flex-shrink:0;}
@@ -353,7 +356,7 @@ body{font-family:-apple-system,'Noto Sans TC',sans-serif;background:var(--bg);co
   <div class="cmd-btn-grid" id="mcBtnGrid"></div>
   <div class="msg-row">
     <input class="msg-inline-input" id="mcMsgInput" type="text" placeholder="輸入訊息給選中的飛手…" maxlength="50">
-    <button class="btn-msg-send" id="mcMsgSend">✈ 發送</button>
+    <button class="btn-msg-send" id="mcMsgSend"><span class="fill"></span><span class="lbl">✈ 長按發送</span></button>
   </div>
 </div>
 </div>
@@ -404,27 +407,15 @@ function towerBeep(){
     o.start(s); o.stop(s+0.15);
   });
 }
-async function notifyTower(title, body){
+// 只負責前景音效/震動；背景系統通知現在完全交給伺服器的 Web Push（見 sw.js 的 'push' handler）。
+// 這裡以前還會自己再叫一次 showNotification/Notification()，WebSocket 沒斷時 push 也會送到，
+// 兩條路徑同時觸發同一個事件，Android 上就會看到兩則一樣的通知
+function notifyTower(title, body){
   const now=Date.now();
   if(body && body===_lastNotify.b && now-_lastNotify.t<2500) return; // 去重，避免同事件連叫兩次
   _lastNotify={t:now,b:body};
   towerBeep();
   try{ navigator.vibrate && navigator.vibrate([150,80,150]); }catch(e){}
-  if(!(window.Notification && Notification.permission==='granted' && document.hidden)) return;
-  const opts={body,tag:'droneatis',renotify:true,icon:'/icons/icon-192.png',badge:'/icons/icon-192.png'};
-  // Android Chrome 用一般 Notification() 建構式常常沒反應，裝成 PWA 後要透過 service worker 發才穩定
-  try{
-    if('serviceWorker' in navigator && navigator.serviceWorker.controller){
-      const reg=await navigator.serviceWorker.ready;
-      await reg.showNotification(title,opts);
-      return;
-    }
-  }catch(e){}
-  try{
-    const n=new Notification(title,opts);
-    n.onclick=()=>{ try{window.focus();}catch(e){} n.close(); };
-    setTimeout(()=>n.close(),8000);
-  }catch(e){}
 }
 // 首次互動：解鎖音效（通知權限改由上方提示條的按鈕明確詢問，不要一點畫面就偷偷跳出系統詢問視窗）
 ['click','touchstart'].forEach(ev=>document.addEventListener(ev,()=>{
@@ -768,7 +759,19 @@ function bindComposerOnce(){
     send({type:'tower_message',clientId:selectedCid,message:txt});
     showToast('訊息已發送'); mi.value='';
   };
-  document.getElementById('mcMsgSend').addEventListener('click',doMsg);
+  // 長按0.5秒才送出，避免手滑誤按發錯訊息給飛手
+  const sendBtn=document.getElementById('mcMsgSend');
+  let pressTimer=null;
+  const startPress=(e)=>{
+    e.preventDefault();
+    if(sendBtn.disabled) return;
+    sendBtn.classList.add('charging');
+    pressTimer=setTimeout(()=>{ sendBtn.classList.remove('charging'); doMsg(); },500);
+  };
+  const cancelPress=()=>{ clearTimeout(pressTimer); sendBtn.classList.remove('charging'); };
+  sendBtn.addEventListener('mousedown',startPress);
+  sendBtn.addEventListener('touchstart',startPress,{passive:false});
+  ['mouseup','mouseleave','touchend','touchcancel'].forEach(ev=>sendBtn.addEventListener(ev,cancelPress));
   mi.addEventListener('keydown',e=>{ if(e.key==='Enter') doMsg(); });
 }
 // 完整重畫底部發送區（切換選中飛手時用）
@@ -983,21 +986,23 @@ function renderLog(){
     el.innerHTML='<div style="color:var(--tx2);text-align:center;padding:24px">暫無記錄</div>';
     return;
   }
-  // 依飛手分組，依時間順序顯示對話
+  // 依「飛手+日期」分組，依時間順序顯示對話（不然同一個飛手跨日的紀錄混在一起分不出哪天）
   const byPilot={};
   commLog.forEach(r=>{
-    if(!byPilot[r.pilotName]) byPilot[r.pilotName]=[];
-    byPilot[r.pilotName].push(r);
+    const key=r.pilotName+'|'+(r.date||'');
+    if(!byPilot[key]) byPilot[key]={name:r.pilotName,date:r.date||'',rows:[]};
+    byPilot[key].rows.push(r);
   });
-  el.innerHTML=Object.keys(byPilot).map(name=>{
-    const lines=byPilot[name].map(r=>
+  el.innerHTML=Object.keys(byPilot).map(key=>{
+    const g=byPilot[key];
+    const lines=g.rows.map(r=>
       `<div class="comm-line">
         <span class="comm-time">${escapeHtml(r.time)}</span>
         <span class="comm-dir ${r.dir}">${r.dir==='tower'?'塔台':'飛手'}</span>
         <span class="comm-text">${escapeHtml(r.text)}</span>
       </div>`
     ).join('');
-    return `<div class="comm-card"><div class="comm-card-hdr">${escapeHtml(name)}</div>${lines}</div>`;
+    return `<div class="comm-card"><div class="comm-card-hdr">${escapeHtml(g.name)} <span style="color:var(--tx2);font-size:15px;font-weight:400">${escapeHtml(g.date)}</span></div>${lines}</div>`;
   }).join('');
 }
 

@@ -141,7 +141,21 @@ input[type=text]:focus,input[type=number]:focus{border-color:var(--ac);}
     <div class="t" style="color:var(--am)">飛聚跟隨模式</div>
     <div class="d">跟隨主控，需回報（回報給主控者，不是塔台）</div>
   </div>
+  <div class="mode-btn" id="btnModeAtcData" style="border-color:var(--gr)">
+    <div class="t" style="color:var(--gr)">塔台放行數據</div>
+    <div class="d">查詢無人機塔台歷史放行數據（外部工具，不需連線）</div>
+  </div>
   <button class="btn outline" id="btnModeBack">‹ 更改名字</button>
+</div>
+
+<!-- 塔台放行數據：外部工具，純瀏覽，不走 WebSocket 連線 -->
+<div class="page" id="scrAtcData">
+  <div class="topbar">
+    <div class="iconbtn" id="btnAtcDataBack">‹ 返回</div>
+    <div class="name" style="text-align:center">塔台放行數據</div>
+    <div style="width:56px;flex-shrink:0"></div>
+  </div>
+  <iframe id="atcDataFrame" src="about:blank" style="flex:1;border:none;width:100%;background:#fff;"></iframe>
 </div>
 
 <!-- 主控模式輔助 -->
@@ -183,6 +197,7 @@ input[type=text]:focus,input[type=number]:focus{border-color:var(--ac);}
     <button class="btn gray" id="btnFollowerClr" style="max-width:none;">清除</button>
     <button class="btn" id="btnFollowerOk" style="max-width:none;">確認</button>
   </div>
+  <div class="sub" id="followerConnStatus" style="min-height:20px;color:var(--ac);"></div>
   <button class="btn outline" id="btnFollowerBack">‹ 更改名字</button>
 </div>
 
@@ -264,29 +279,37 @@ function showToast(msg){const t=$('toast');t.textContent=msg;t.classList.add('sh
 // ── WebSocket ────────────────────────────────────────────────────────
 function send(d){ if(ws&&ws.readyState===1) ws.send(JSON.stringify(d)); }
 
+function setFollowerConnStatus(text){ const el=$('followerConnStatus'); if(el) el.textContent=text||''; }
 function connect(){
   if(wsConnecting||wsConnected) return;
   wsConnecting=true;
+  setFollowerConnStatus('連線中…');
   const wsProtocol = location.protocol==='https:'?'wss:':'ws:';
   ws=new WebSocket(`${wsProtocol}//${location.host}`);
   // 連線逾時保護：手機網路差時 WebSocket 可能卡在 connecting 不觸發 onopen/onclose/onerror 任何一個，
-  // 造成「按確認完全沒反應」；逾時就強制關閉重試，並讓使用者能再按一次
+  // 造成「按確認完全沒反應」；逾時就強制關閉重試，並讓使用者能再按一次。畫面上留一行持續更新的狀態文字，
+  // 不要只跳一次會消失的 toast——不然背景默默重試好幾輪，使用者只會看到畫面卡住、以為完全沒反應
   clearTimeout(connectTimeoutTimer);
   connectTimeoutTimer=setTimeout(()=>{
-    if(wsConnecting){ wsConnecting=false; try{ws.close();}catch(e){} showToast('連線逾時，正在重試…'); scheduleReconnect(); }
-  },8000);
+    if(wsConnecting){ wsConnecting=false; try{ws.close();}catch(e){} setFollowerConnStatus('連線逾時，重試中…'); scheduleReconnect(); }
+  },6000);
   ws.onopen=()=>{
     clearTimeout(connectTimeoutTimer);
     wsConnecting=false; wsConnected=true; updateConnDot();
+    setFollowerConnStatus('已連線，讀取中…');
     send({type:'follower_register',name:pilotName,masterCode,gather:gatherMode,monitor:monitorMode});
   };
-  ws.onclose=()=>{ clearTimeout(connectTimeoutTimer); wsConnecting=false; wsConnected=false; updateConnDot(); scheduleReconnect(); };
+  ws.onclose=()=>{
+    clearTimeout(connectTimeoutTimer); wsConnecting=false; wsConnected=false; updateConnDot();
+    if(masterCode && !connected) setFollowerConnStatus('連線中斷，重試中…');
+    scheduleReconnect();
+  };
   ws.onerror=()=>{ try{ws.close();}catch(e){} };
   ws.onmessage=e=>{ let msg; try{msg=JSON.parse(e.data);}catch(err){return;} handle(msg); };
 }
 function scheduleReconnect(){
   clearTimeout(reconnectTimer);
-  reconnectTimer=setTimeout(()=>{ if(masterCode) connect(); },4000);
+  reconnectTimer=setTimeout(()=>{ if(masterCode) connect(); },3000);
 }
 function updateConnDot(){
   $('connDot').classList.toggle('on', wsConnected);
@@ -334,6 +357,7 @@ function handle(msg){
       break;
     case 'follower_error':
       showToast('⚠️ '+(msg.message||'序號無效或已過期'));
+      setFollowerConnStatus('⚠️ '+(msg.message||'序號無效或已過期'));
       break;
     case 'tower_connected':
       towerConnected=true;
@@ -637,6 +661,7 @@ function showModeSelect(){
 function gotoFollowerCode(){
   followerBuf=''; renderFollowerBuf();
   $('followerCodeName').textContent=pilotName;
+  setFollowerConnStatus('');
   showPage('scrFollowerCode');
 }
 $('btnNameNext').addEventListener('click',()=>{
@@ -649,6 +674,12 @@ $('btnModeView').addEventListener('click',()=>{ followerKind='view'; gatherMode=
 $('btnModeGather').addEventListener('click',()=>{ followerKind='gather'; gatherMode=true; monitorMode=false; gotoFollowerCode(); });
 $('btnModeMonitor').addEventListener('click',()=>{ followerKind='monitor'; gatherMode=false; monitorMode=true; gotoFollowerCode(); });
 $('btnModeBack').addEventListener('click',()=>{ showPage('scrName'); });
+$('btnModeAtcData').addEventListener('click',()=>{
+  const frame=$('atcDataFrame');
+  if(frame.src==='about:blank') frame.src='https://kevindronesplayer.github.io/drone-atc-data/';
+  showPage('scrAtcData');
+});
+$('btnAtcDataBack').addEventListener('click',()=>{ showModeSelect(); });
 $('btnFollowerBack').addEventListener('click',()=>{ showModeSelect(); });
 
 let followerBuf='';
