@@ -23,7 +23,7 @@
 #define GPS_RX_PIN    32   // Core2 PORT.A（外接I2C腳位，這裡改當UART用；訊號1=RXD）
 #define GPS_TX_PIN    33   // Core2 PORT.A（訊號2=TXD）
 #define GPS_BAUD      115200
-#define FW_VERSION    30
+#define FW_VERSION    31
 #define UPDATE_CHECK_URL "https://droneatis-production.up.railway.app/firmware/version.json"
 
 // ── NVS 儲存 ─────────────────────────────────────────────────────────────────
@@ -92,6 +92,15 @@ const char*   BRIGHT_LBL[3] = {"暗","中","亮"};
 
 // 降落
 enum LandState { LAND_NONE, LAND_WAIT_ACK, LAND_COUNTDOWN };
+// 這兩個 struct 定義要放在檔案很前面：Arduino 會在檔案最上面自動產生函式原型宣告，
+// 如果型別定義放在後面（例如原本放在多 NOTAM那段），自動產生的原型會因為型別還不存在而編譯失敗
+struct NotamSlot {
+  String code, status, lastMessage, lastMessageTime, landingTimeStr, landingReason;
+  bool showingMessage=false, everReceivedCommand=false, ackPending=false;
+  LandState landState=LAND_NONE;
+  int immEndSec=-1;
+};
+struct NotamRowView{ String code,statusText,lastMessage; bool ackPending,showingMessage; LandState landState; };
 LandState landState = LAND_NONE;
 unsigned long landBtnPressAt = 0;
 bool landBtnPressed = false;
@@ -115,7 +124,8 @@ String pendingFwNotes   = "";
 enum Screen {
   SCR_BOOT, SCR_NAME_INPUT, SCR_WIFI_SCAN, SCR_WIFI_PASS,
   SCR_MODE_SELECT, SCR_FOLLOWER_CODE, SCR_CODE, SCR_IDLE,
-  SCR_COMMAND, SCR_END, SCR_CHARGING, SCR_TURNPOINT_CONFIRM, SCR_POWEROFF_CONFIRM, SCR_WIFI_CHANGE_CONFIRM, SCR_UPDATE_CONFIRM, SCR_MORE_MENU
+  SCR_COMMAND, SCR_END, SCR_CHARGING, SCR_TURNPOINT_CONFIRM, SCR_POWEROFF_CONFIRM, SCR_WIFI_CHANGE_CONFIRM, SCR_UPDATE_CONFIRM, SCR_MORE_MENU,
+  SCR_NOTAM_LIST, SCR_NOTAM_DELETE_CONFIRM
 };
 Screen currentScreen = SCR_BOOT;
 Screen moreMenuReturnScreen = SCR_IDLE;  // 開啟「更多」選單前所在的畫面，關閉後要回去
@@ -191,6 +201,82 @@ int getNowTotalSecs(){
   return t.tm_hour*3600+t.tm_min*60+t.tm_sec;
 }
 int immEndSec = -1; // 馬上降落：固定倒數截止秒（當天秒數）；-1 表示非馬上降落
+
+// ── 多 NOTAM（最多3個，清單進入式）─────────────────────────────────────────
+// 只有1個 NOTAM 時完全不會用到這一段，跟原本行為完全一樣：drawIdle/drawCommand/
+// handleBuzzer/checkLandDoneHold 等既有邏輯繼續讀寫上面那批全域變數，一行都不用改。
+// 2個以上才會用到：切換查看哪個 NOTAM 時，把目前這批全域變數存回背景陣列、
+// 換另一筆的內容進來，這樣「畫面在看的」永遠就是這批全域變數，只是內容換了。
+// （struct 定義本身放到檔案很前面去了，這裡只留全域變數跟函式）
+NotamSlot notamSlots[3];
+int notamCount = 1;      // 1~3；等於1時完全比照舊行為
+int activeNotamIdx = 0;  // 目前畫面在看的是第幾個 NOTAM
+bool notamAddMode = false; // 公告鍵盤目前是「新增一個 NOTAM」而不是「編輯目前這個」
+
+void saveActiveNotamSlot(){
+  NotamSlot &s=notamSlots[activeNotamIdx];
+  s.code=notamCode; s.status=currentStatus; s.lastMessage=lastMessage; s.lastMessageTime=lastMessageTime;
+  s.landingTimeStr=landingTimeStr; s.landingReason=landingReason;
+  s.showingMessage=showingMessage; s.everReceivedCommand=everReceivedCommand; s.ackPending=ackPending;
+  s.landState=landState; s.immEndSec=immEndSec;
+}
+// 切換去看某個 NOTAM：先把目前這份存回原本的 slot，再把目標 slot 的內容載入成目前這批全域變數
+void switchToNotamSlot(int idx){
+  if(idx<0||idx>=notamCount) return;
+  if(idx!=activeNotamIdx) saveActiveNotamSlot();
+  activeNotamIdx=idx;
+  NotamSlot &s=notamSlots[idx];
+  notamCode=s.code; currentStatus=s.status; lastMessage=s.lastMessage; lastMessageTime=s.lastMessageTime;
+  landingTimeStr=s.landingTimeStr; landingReason=s.landingReason;
+  showingMessage=s.showingMessage; everReceivedCommand=s.everReceivedCommand; ackPending=s.ackPending;
+  landState=s.landState; immEndSec=s.immEndSec;
+}
+// 幫背景（目前沒在看）的某個 NOTAM slot 套用剛收到的塔台指令/訊息，不動畫面
+void applyCommandToSlot(NotamSlot &s, JsonDocument &doc, bool isMessage){
+  String st=doc["time"]|""; if(st.length()==0) st=getNowTime(); if(st=="--:--") st="";
+  if(isMessage){
+    s.showingMessage=true; s.everReceivedCommand=true;
+    s.lastMessage=doc["message"].as<String>(); s.landState=LAND_NONE; s.lastMessageTime=st;
+  } else {
+    s.showingMessage=false; s.everReceivedCommand=true;
+    s.status=doc["status"].as<String>();
+    bool immediateLand=doc["immediate"]|false;
+    JsonVariant lt=doc["landingTime"];
+    s.landingReason="";
+    if(immediateLand){
+      s.immEndSec=(getNowTotalSecs()+60)%86400;
+      char buf[5]; sprintf(buf,"%02d%02d",s.immEndSec/3600,(s.immEndSec/60)%60);
+      s.landingTimeStr=String(buf);
+    } else if(lt.isNull()||lt.as<String>()=="null"||lt.as<String>()==""){ s.landingTimeStr=""; s.immEndSec=-1; }
+    else {
+      s.immEndSec=-1;
+      String raw=lt.as<String>();
+      if(raw.length()>=4&&isDigit(raw[0])&&isDigit(raw[1])&&isDigit(raw[2])&&isDigit(raw[3])){
+        s.landingTimeStr=raw.substring(0,4);
+        if(raw.length()>4) s.landingReason=raw.substring(4);
+      } else s.landingTimeStr=raw;
+    }
+    s.lastMessageTime=st;
+    s.landState=(s.status=="降落")?LAND_WAIT_ACK:LAND_NONE;
+  }
+  if(NEEDS_ACK) s.ackPending=true;
+}
+
+// 清單第 i 列要顯示的內容：如果是目前正在看的那個，資料還在全域變數裡（還沒存回陣列），
+// 其餘的才是 notamSlots[i] 裡存好的
+NotamRowView notamRowView(int i){
+  NotamRowView v;
+  if(i==activeNotamIdx){
+    v.code=notamCode; v.statusText=currentStatus; v.lastMessage=lastMessage;
+    v.ackPending=ackPending; v.showingMessage=showingMessage; v.landState=landState;
+  } else {
+    NotamSlot &s=notamSlots[i];
+    v.code=s.code; v.statusText=s.status; v.lastMessage=s.lastMessage;
+    v.ackPending=s.ackPending; v.showingMessage=s.showingMessage; v.landState=s.landState;
+  }
+  return v;
+}
+
 int landTimeSecs();
 int landDiffSec(){ int d=landTimeSecs()-getNowTotalSecs(); if(d<-43200) d+=86400; return d; }
 int landTimeSecs(){
@@ -649,6 +735,7 @@ void drawFollowerInput(){
 void sendRegister();
 void sendFollowerRegister();
 void drawIdle();
+void drawNotamList();
 
 void webSocketEvent(WStype_t wsType, uint8_t* payload, size_t length);
 
@@ -731,7 +818,7 @@ void sendHeartbeat(){
 void sendAck(String ackType){
   if(pilotMode!=MODE_MASTER) return;
   StaticJsonDocument<128> doc;
-  doc["type"]="pilot_ack"; doc["ackType"]=ackType;
+  doc["type"]="pilot_ack"; doc["ackType"]=ackType; doc["notamIndex"]=activeNotamIdx;
   String o; serializeJson(doc,o); wsClient.sendTXT(o);
 }
 
@@ -779,7 +866,7 @@ void webSocketEvent(WStype_t wsType, uint8_t* payload, size_t length){
     case WStype_TEXT:
       Serial.print("[WS] TEXT: "); Serial.println((char*)payload);
       {
-      StaticJsonDocument<512> doc;
+      StaticJsonDocument<1024> doc; // 加大過：多 NOTAM 時 tower_connected 會帶 notams 陣列，512 常常不夠
       if(deserializeJson(doc,(char*)payload)) return;
       String type=doc["type"].as<String>();
 
@@ -833,6 +920,24 @@ void webSocketEvent(WStype_t wsType, uint8_t* payload, size_t length){
         // 斷線重連（WiFi掉線/重開機）沿用伺服器記住的飛航公告/跑道，不要被重設成空白
         if(doc.containsKey("notam")) notamCode=doc["notam"]|"";
         if(doc.containsKey("rwy")) rwyDir=doc["rwy"]|"";
+        // 重連時如果伺服器記得不只1個 NOTAM，把「背景」那幾個 slot 的代碼/狀態復原給清單顯示用。
+        // 目前正在看的那個 slot 完全不動——它的全域變數（含 landState）斷線期間本來就沒被清掉，
+        // 保留著才能讓下面「斷線當下正在降落流程」的保護邏輯正常運作，這裡沒必要也不該去蓋掉它
+        if(doc.containsKey("notams")){
+          JsonArray arr=doc["notams"].as<JsonArray>();
+          int n=arr.size();
+          if(n>1){
+            if(n>3)n=3;
+            notamCount=n;
+            int i=0;
+            for(JsonObject o:arr){
+              if(i>=3) break;
+              if(i!=activeNotamIdx){ notamSlots[i].code=o["code"]|""; notamSlots[i].status=o["status"]|"開機預備"; }
+              i++;
+            }
+            if(activeNotamIdx>=notamCount) activeNotamIdx=0;
+          }
+        }
         // 如果斷線當下正在降落流程（還沒按收到降落指令，或已經在倒數還沒回報完成），
         // 重連不能硬切回 SCR_IDLE——那個畫面沒有降落回報按鈕，飛手會卡住回報不了
         if(landState==LAND_WAIT_ACK||landState==LAND_COUNTDOWN){ currentScreen=SCR_COMMAND; drawCommand(); }
@@ -849,6 +954,18 @@ void webSocketEvent(WStype_t wsType, uint8_t* payload, size_t length){
         if(currentScreen==SCR_IDLE||currentScreen==SCR_COMMAND) updateClock();
       }
       else if(type=="command"||type=="follower_sync"){
+        // 多 NOTAM（只有主控才有這個概念）：指令是給「目前沒在看」的那個 NOTAM，
+        // 背景更新那個 slot 就好，不要打斷畫面、不要把它的內容蓋到目前看的這份全域變數上
+        if(pilotMode==MODE_MASTER){
+          if(doc.containsKey("notamCount")) notamCount=constrain((int)doc["notamCount"],1,3);
+          int ni=doc["notamIndex"]|0;
+          if(ni>=0&&ni<3&&doc.containsKey("notamCode")) notamSlots[ni].code=doc["notamCode"].as<String>();
+          if(ni!=activeNotamIdx){
+            applyCommandToSlot(notamSlots[ni],doc,false);
+            buzz(700,150);
+            break;
+          }
+        }
         showingMessage=false;
         everReceivedCommand=true;
         currentStatus=doc["status"].as<String>();
@@ -879,6 +996,16 @@ void webSocketEvent(WStype_t wsType, uint8_t* payload, size_t length){
         currentScreen=SCR_COMMAND; drawCommand(); buzz(1000,300);
       }
       else if(type=="message"){
+        if(pilotMode==MODE_MASTER){
+          if(doc.containsKey("notamCount")) notamCount=constrain((int)doc["notamCount"],1,3);
+          int ni=doc["notamIndex"]|0;
+          if(ni>=0&&ni<3&&doc.containsKey("notamCode")) notamSlots[ni].code=doc["notamCode"].as<String>();
+          if(ni!=activeNotamIdx){
+            applyCommandToSlot(notamSlots[ni],doc,true);
+            buzz(700,150);
+            break;
+          }
+        }
         showingMessage=true;
         everReceivedCommand=true;
         lastMessage=doc["message"].as<String>(); landState=LAND_NONE;
@@ -1007,7 +1134,97 @@ void drawGpsBtn(){
   M5.Display.drawString("GPS",273,45);
 }
 
+// NOTAM 清單（2個以上才會顯示）：每一列是一個 NOTAM，點列進去看/操作那個 NOTAM 的待命或指令畫面，
+// 點 ✕ 刪除（至少留1個），最下面沒滿3個時有「新增」列
+void drawNotamList(){
+  currentScreen=SCR_NOTAM_LIST;
+  M5.Display.fillScreen(CLR_BG); drawTopBar();
+  bool ok=towerConnected&&wsConnected;
+  fXs(); M5.Display.setTextDatum(middle_left);
+  M5.Display.setTextColor(ok?CLR_GREEN:CLR_RED);
+  M5.Display.drawString(ok?("● "+towerType+" "+towerName):"● 無連線",8,42);
+  int y=54, rh=44, gap=6;
+  for(int i=0;i<notamCount;i++){
+    NotamRowView v=notamRowView(i);
+    uint16_t bd=CLR_GRAY;
+    String tag="";
+    if(v.ackPending){ bd=CLR_AMBER; tag="待回應"; }
+    else if(v.landState==LAND_COUNTDOWN){ bd=CLR_AMBER; tag="降落倒數"; }
+    else if(v.landState==LAND_WAIT_ACK){ bd=CLR_AMBER; tag="收到降落"; }
+    M5.Display.fillRoundRect(8,y,270,rh,8,CLR_SURFACE); M5.Display.drawRoundRect(8,y,270,rh,8,bd);
+    fSm(); M5.Display.setTextDatum(middle_left); M5.Display.setTextColor(CLR_AMBER);
+    M5.Display.drawString(v.code.length()?v.code:("NOTAM"+String(i+1)),16,y+14);
+    fXs(); M5.Display.setTextColor(CLR_WHITE);
+    String statusText=v.showingMessage?v.lastMessage:v.statusText;
+    M5.Display.drawString(statusText,16,y+32);
+    if(tag.length()){ M5.Display.setTextDatum(middle_right); M5.Display.setTextColor(bd); M5.Display.drawString(tag,272,y+rh/2); }
+    M5.Display.fillRoundRect(284,y,28,rh,6,CLR_SURFACE); M5.Display.drawRoundRect(284,y,28,rh,6,CLR_RED);
+    fSm(); M5.Display.setTextDatum(middle_center); M5.Display.setTextColor(CLR_RED); M5.Display.drawString("X",298,y+rh/2);
+    y+=rh+gap;
+  }
+  if(notamCount<3){
+    M5.Display.fillRoundRect(8,y,304,36,8,CLR_SURFACE); M5.Display.drawRoundRect(8,y,304,36,8,CLR_ACCENT);
+    fSm(); M5.Display.setTextDatum(middle_center); M5.Display.setTextColor(CLR_ACCENT);
+    M5.Display.drawString("+ 新增 NOTAM",160,y+18);
+  }
+}
+
+void goToNotamDetail(int idx){
+  switchToNotamSlot(idx);
+  if(everReceivedCommand){ currentScreen=SCR_COMMAND; drawCommand(); }
+  else { currentScreen=SCR_IDLE; drawIdle(); }
+}
+
+int pendingDeleteNotamIdx=-1;
+void drawNotamDeleteConfirm(int idx){
+  currentScreen=SCR_NOTAM_DELETE_CONFIRM; pendingDeleteNotamIdx=idx;
+  NotamRowView v=notamRowView(idx);
+  M5.Display.fillRect(0,172,320,68,CLR_SURFACE); M5.Display.drawRect(0,172,320,68,CLR_RED);
+  fXs(); M5.Display.setTextDatum(middle_center); M5.Display.setTextColor(CLR_WHITE);
+  M5.Display.drawString("刪除 "+(v.code.length()?v.code:("NOTAM"+String(idx+1)))+"？",160,182);
+  M5.Display.setTextColor(CLR_GRAY); M5.Display.drawString("該 NOTAM 的資料會清掉",160,198);
+  M5.Display.fillRoundRect(10,204,140,28,8,CLR_SURFACE); M5.Display.drawRoundRect(10,204,140,28,8,CLR_GRAY);
+  M5.Display.setTextColor(CLR_GRAY); M5.Display.drawString("取消",80,218);
+  M5.Display.fillRoundRect(170,204,140,28,8,CLR_RED);
+  M5.Display.setTextColor(CLR_WHITE); M5.Display.drawString("刪除",240,218);
+}
+
+void handleNotamListTouch(int tx,int ty){
+  int y=54, rh=44, gap=6;
+  for(int i=0;i<notamCount;i++){
+    if(ty>=y&&ty<=y+rh){
+      if(tx>=284&&tx<=312){ if(notamCount>1) drawNotamDeleteConfirm(i); return; }
+      if(tx>=8&&tx<=278){ goToNotamDetail(i); return; }
+      return;
+    }
+    y+=rh+gap;
+  }
+  if(notamCount<3 && ty>=y&&ty<=y+36&&tx>=8&&tx<=312){
+    // 新增 NOTAM：跟編輯共用同一個公告鍵盤，OK 確認時用 notamAddMode 分辨
+    notamHadValue=false; notamAddMode=true; keypadMode=KP_NOTAM; keypadBuffer="";
+    drawKeypad();
+  }
+}
+void handleNotamDeleteConfirmTouch(int tx,int ty){
+  if(pendingDeleteNotamIdx<0) return;
+  if(tx<160){ pendingDeleteNotamIdx=-1; drawNotamList(); return; }
+  int idx=pendingDeleteNotamIdx; pendingDeleteNotamIdx=-1;
+  StaticJsonDocument<64> doc; doc["type"]="pilot_notam_manage"; doc["action"]="remove"; doc["index"]=idx;
+  String o; serializeJson(doc,o); wsClient.sendTXT(o);
+  // 本機也同步砍掉，索引比被刪的大的都要往前移一位
+  for(int i=idx;i<notamCount-1;i++) notamSlots[i]=notamSlots[i+1];
+  notamCount--;
+  if(activeNotamIdx==idx) activeNotamIdx=0;
+  else if(activeNotamIdx>idx) activeNotamIdx--;
+  switchToNotamSlot(activeNotamIdx); // 重新把全域變數對齊到（可能變動過的）activeNotamIdx
+  beep2();
+  drawIdle(); // notamCount 若已經回到1，drawIdle() 會自己判斷改顯示原本的單一 NOTAM 畫面
+}
+
 void drawIdle(){
+  // 2個以上 NOTAM 時，「回到待命畫面」改成回到 NOTAM 清單，不是回到單一 NOTAM 的畫面——
+  // 這樣不用去改每一個原本呼叫 drawIdle() 的地方（更多選單返回、改名返回、WiFi取消…都一樣直接受惠）
+  if(pilotMode==MODE_MASTER && notamCount>1){ drawNotamList(); return; }
   M5.Display.fillScreen(CLR_BG); drawTopBar();
 
   bool ok=towerConnected&&wsConnected;
@@ -1312,7 +1529,7 @@ void checkLandBtnHold(){
   M5.Display.drawString("長按3秒回報降落",160,197);
   if(held>=3000){
     landBtnPressed=false;
-    StaticJsonDocument<64> doc; doc["type"]="pilot_land_report"; doc["pilotName"]=pilotName;
+    StaticJsonDocument<64> doc; doc["type"]="pilot_land_report"; doc["pilotName"]=pilotName; doc["notamIndex"]=activeNotamIdx;
     String o; serializeJson(doc,o); wsClient.sendTXT(o);
     currentStatus="降落"; landingTimeStr=""; landingReason=""; landState=LAND_NONE;
     currentScreen=SCR_IDLE; drawIdle(); buzz(1000,300);
@@ -1361,7 +1578,7 @@ void drawKeypad(){
 
 void handleKeypadTouch2(int tx,int ty){
   if(tx>=4&&tx<=44&&ty>=2&&ty<=28){
-    keypadMode=KP_NONE;
+    keypadMode=KP_NONE; notamAddMode=false;
     if(currentScreen==SCR_COMMAND) drawCommand(); else { currentScreen=SCR_IDLE; drawIdle(); }
     return;
   }
@@ -1373,12 +1590,35 @@ void handleKeypadTouch2(int tx,int ty){
       if(keys[i]==-1){keypadBuffer="";drawKeypad();return;}
       if(keys[i]==-2){
         if(keypadBuffer.length()==4){
-          notamCode="U"+keypadBuffer;
-          StaticJsonDocument<128> doc; doc["type"]="pilot_notam"; doc["notam"]=notamCode; doc["pilotName"]=pilotName;
-          String o;serializeJson(doc,o);wsClient.sendTXT(o);
-          keypadMode=KP_NONE;
-          if(notamHadValue){ currentScreen=SCR_TURNPOINT_CONFIRM; drawTurnpointConfirm(); beep2(); }
-          else { drawIdle(); beep2(); }
+          String code="U"+keypadBuffer;
+          StaticJsonDocument<128> doc;
+          if(notamAddMode){
+            // 新增一個 NOTAM（最多3個）：本機直接補一筆到陣列尾端，再切換過去看它
+            notamAddMode=false;
+            if(notamCount<3){
+              int newIdx=notamCount;
+              notamSlots[newIdx]=NotamSlot();
+              notamSlots[newIdx].code=code;
+              notamCount++;
+              doc["type"]="pilot_notam_manage"; doc["action"]="add"; doc["code"]=code;
+              String o;serializeJson(doc,o);wsClient.sendTXT(o);
+              keypadMode=KP_NONE;
+              switchToNotamSlot(newIdx);
+              currentScreen=SCR_IDLE; drawIdle(); beep2();
+            } else { keypadMode=KP_NONE; drawNotamList(); }
+          } else {
+            notamCode=code;
+            notamSlots[activeNotamIdx].code=notamCode;
+            if(notamCount>1){ // 2個以上 NOTAM 時要指定改哪個 slot，不能再用舊版單一 NOTAM 訊息（會改到伺服器第1筆）
+              doc["type"]="pilot_notam_manage"; doc["action"]="edit"; doc["index"]=activeNotamIdx; doc["code"]=notamCode;
+            } else {
+              doc["type"]="pilot_notam"; doc["notam"]=notamCode; doc["pilotName"]=pilotName;
+            }
+            String o;serializeJson(doc,o);wsClient.sendTXT(o);
+            keypadMode=KP_NONE;
+            if(notamHadValue){ currentScreen=SCR_TURNPOINT_CONFIRM; drawTurnpointConfirm(); beep2(); }
+            else { drawIdle(); beep2(); }
+          }
         } else { M5.Display.fillRect(40,200,240,26,CLR_BG); fXs();M5.Display.setTextDatum(middle_center); M5.Display.setTextColor(CLR_RED); M5.Display.drawString("請輸入4個數字",160,213); }
         return;
       }
@@ -1486,8 +1726,10 @@ void handleTouch(){
   int tx=t.x, ty=t.y;
 
   // 更多選單：頂部列，任何有畫面頂欄的畫面都能點
-  if((currentScreen==SCR_IDLE||currentScreen==SCR_COMMAND)&&tx>=184&&tx<=248&&ty<=34){ drawMoreMenu(); return; }
+  if((currentScreen==SCR_IDLE||currentScreen==SCR_COMMAND||currentScreen==SCR_NOTAM_LIST)&&tx>=184&&tx<=248&&ty<=34){ drawMoreMenu(); return; }
 
+  if(currentScreen==SCR_NOTAM_LIST){ handleNotamListTouch(tx,ty); return; }
+  if(currentScreen==SCR_NOTAM_DELETE_CONFIRM){ handleNotamDeleteConfirmTouch(tx,ty); return; }
   if(currentScreen==SCR_WIFI_SCAN){ handleWifiListTouch(tx,ty); return; }
   if(currentScreen==SCR_NAME_INPUT||currentScreen==SCR_WIFI_PASS||currentScreen==SCR_FOLLOWER_CODE){ handleKeyboardTouch(tx,ty); return; }
   if(currentScreen==SCR_MODE_SELECT){

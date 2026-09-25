@@ -237,48 +237,90 @@ function pushComm(pilotName,dir,text){
   bcast({type:'comm_log_add',entry},c=>c&&c.role==='tower'&&(!ownerTowerId||!c.towerId||c.towerId===ownerTowerId));
 }
 
-function applyStatus(pilot,status,landingTime){
-  pilot.status=status;
-  pilot.lastCommType='status';
-  pilot.hasCommand=true;
-  pilot.lastMessageTime=nowTimeStr(); // 塔台每次來訊（指令或訊息）的時間，飛手端顯示用，跟 line 一樣
-  pilot.landingReported=false; // 新指令 → 清除「已回報降落完成」旗標
-  if(landingTime) pilot.landingTime=landingTime;
+// ── 多 NOTAM（最多3個）──────────────────────────────────────────────
+// 只有1個 NOTAM 時完全沿用舊行為：notams[0] 就是唯一一份狀態，且時時鏡射回舊的頂層欄位
+// （pilot.status/ackStatus/notam...），這樣沒特別處理多 NOTAM 的地方（單飛手模式舊邏輯、
+// 下載報表等）都還是能正常運作，不用整批一起改。只有 notams.length>=2 才真的變成「每個
+// NOTAM 各自獨立的狀態」，需要塔台/飛手指定要對哪一個 NOTAM 動作。
+function ensureNotams(pilot){
+  if(!pilot.notams||!pilot.notams.length){
+    pilot.notams=[{
+      code:pilot.notam||'', status:pilot.status||'開機預備', lastCommType:pilot.lastCommType||'status',
+      hasCommand:!!pilot.hasCommand, landingTime:pilot.landingTime||null, landingReason:'',
+      landingLocked:!!pilot.landingLocked, landingReported:!!pilot.landingReported,
+      ackPending:!!pilot.ackPending, ackStatus:pilot.ackStatus||'', ackDeadline:pilot.ackDeadline||null,
+      rwy:pilot.rwy||'', lastMessage:pilot.lastMessage||'', lastMessageTime:pilot.lastMessageTime||''
+    }];
+  }
+  return pilot.notams;
+}
+function notamSlot(pilot,idx){ const ns=ensureNotams(pilot); return ns[idx]||ns[0]; }
+// 把 slot 0 的狀態鏡射回舊的頂層欄位；只有1個 NOTAM 時 slot 0 就是全部，這樣舊程式碼完全不用改
+function syncLegacyFromSlot0(pilot){
+  const s=pilot.notams[0]; if(!s) return;
+  pilot.notam=s.code; pilot.status=s.status; pilot.lastCommType=s.lastCommType; pilot.hasCommand=s.hasCommand;
+  pilot.landingTime=s.landingTime; pilot.landingLocked=s.landingLocked; pilot.landingReported=s.landingReported;
+  pilot.ackPending=s.ackPending; pilot.ackStatus=s.ackStatus; pilot.ackDeadline=s.ackDeadline;
+  pilot.rwy=s.rwy; pilot.lastMessage=s.lastMessage; pilot.lastMessageTime=s.lastMessageTime;
+}
+function notamLabel(pilot,idx){
+  const ns=ensureNotams(pilot);
+  if(ns.length<2) return '';
+  const code=ns[idx]&&ns[idx].code;
+  return code?('['+code+'] '):('[NOTAM'+(idx+1)+'] ');
+}
+
+function applyStatus(pilot,status,landingTime,notamIndex){
+  const idx=notamIndex||0;
+  const ns=ensureNotams(pilot);
+  const slot=ns[idx]||ns[0];
+  slot.status=status;
+  slot.lastCommType='status';
+  slot.hasCommand=true;
+  slot.lastMessageTime=nowTimeStr(); // 塔台每次來訊（指令或訊息）的時間，飛手端顯示用，跟 line 一樣
+  slot.landingReported=false; // 新指令 → 清除「已回報降落完成」旗標
+  if(landingTime) slot.landingTime=landingTime;
   const gn=groupName(pilot.groupId);
   const {tName,tType}=getActiveTower(pilot);
+  const pendingKey=pilot.clientId+':'+idx;
   if(status==='可以起飛'){
     pilot.takeoffTime=new Date().toISOString();
-    flightLog.push({date:todayStr(),groupName:gn,pilotName:dispName(pilot),type:'takeoff',time:nowTimeStr(),rwy:pilot.rwy||'',towerName:tName,towerType:tType});
-    pendingLandingEntry.delete(pilot.clientId); // 新一輪起飛，之前殘留的降落紀錄參照要丟掉，不要被下一次降落誤更新到
+    flightLog.push({date:todayStr(),groupName:gn,pilotName:dispName(pilot),type:'takeoff',time:nowTimeStr(),rwy:slot.rwy||'',notam:slot.code||'',towerName:tName,towerType:tType});
+    pendingLandingEntry.delete(pendingKey); // 新一輪起飛，之前殘留的降落紀錄參照要丟掉，不要被下一次降落誤更新到
   }
   if(status==='降落'){
     // 起飛後塔台可能重複送「降落」更新時間，飛行紀錄只留最後一筆，不要每送一次就多一筆配對紀錄
-    const existing=pendingLandingEntry.get(pilot.clientId);
+    const existing=pendingLandingEntry.get(pendingKey);
     if(existing){ existing.time=nowTimeStr(); }
     else{
-      const entry={date:todayStr(),groupName:gn,pilotName:dispName(pilot),type:'landing',time:nowTimeStr(),rwy:pilot.rwy||'',towerName:tName,towerType:tType};
+      const entry={date:todayStr(),groupName:gn,pilotName:dispName(pilot),type:'landing',time:nowTimeStr(),rwy:slot.rwy||'',notam:slot.code||'',towerName:tName,towerType:tType};
       flightLog.push(entry);
-      pendingLandingEntry.set(pilot.clientId,entry);
+      pendingLandingEntry.set(pendingKey,entry);
     }
-    pilot.landingLocked=true; // 送出降落/馬上降落後鎖定，飛手回報降落前塔台不能再發其他指令/訊息給這個飛手
+    slot.landingLocked=true; // 送出降落/馬上降落後鎖定，飛手回報降落前塔台不能再發其他指令/訊息給這個 NOTAM
   }
-  pushComm(dispName(pilot),'tower',status+(landingTime?(' '+landingTime):''));
-  pilot.ackPending=true;
-  pilot.ackStatus='pending'; // pending / ack / takeoff / landing_ack / landing_done
-  pilot.ackDeadline=Date.now()+30000;
+  pushComm(dispName(pilot),'tower',notamLabel(pilot,idx)+status+(landingTime?(' '+landingTime):''));
+  slot.ackPending=true;
+  slot.ackStatus='pending'; // pending / ack / takeoff / landing_ack / landing_done
+  slot.ackDeadline=Date.now()+30000;
+  syncLegacyFromSlot0(pilot);
 }
 
 // 送出降落/馬上降落後鎖定；鎖定中只允許再次送「降落」（例如更新時間），其他指令/訊息要擋掉
-function canSendToPilot(pilot,newStatus){ return !pilot.landingLocked || newStatus==='降落'; }
+function canSendToPilot(pilot,newStatus,notamIndex){
+  const slot=notamSlot(pilot,notamIndex||0);
+  return !slot.landingLocked || newStatus==='降落';
+}
 
 function updateGroupStatus(groupId,status,landingTime,immediate){
   const g=groups.get(groupId); if(!g) return;
   g.memberIds.forEach(cid=>{
     const p=pilots.get(cid); if(!p) return;
-    if(!canSendToPilot(p,status)) return; // 跳過正在降落鎖定中的飛手，不影響同分類其他人
-    applyStatus(p,status,landingTime);
-    toPilot(cid,{type:'command',status,landingTime:landingTime||null,immediate:!!immediate,groupName:groupName(groupId),time:p.lastMessageTime});
-    toFollowers(cid,{type:'follower_sync',status,landingTime:landingTime||null,immediate:!!immediate,groupName:groupName(groupId),time:p.lastMessageTime});
+    if(!canSendToPilot(p,status,0)) return; // 跳過正在降落鎖定中的飛手，不影響同分類其他人；分類指令固定對第1個 NOTAM
+    applyStatus(p,status,landingTime,0);
+    const slot=notamSlot(p,0);
+    toPilot(cid,{type:'command',status,landingTime:landingTime||null,immediate:!!immediate,groupName:groupName(groupId),time:slot.lastMessageTime,notamIndex:0,notamCode:slot.code||'',notamCount:p.notams.length});
+    toFollowers(cid,{type:'follower_sync',status,landingTime:landingTime||null,immediate:!!immediate,groupName:groupName(groupId),time:slot.lastMessageTime});
     markGatherPending(cid);
   });
   broadcastPilots();
@@ -335,23 +377,26 @@ wss.on('connection',ws=>{
         // 用「執行這次加入」的那台塔台的名字/類型（多塔台時不能抓到別台）
         const tName=found.ownerTowerName; const tType=found.ownerTowerType;
         broadcastPilots();
-        toPilot(found.clientId,{type:'tower_connected',groupName:groupName(found.groupId),towerName:tName,towerType:tType,notam:found.notam||'',rwy:found.rwy||''});
+        ensureNotams(found);
+        toPilot(found.clientId,{type:'tower_connected',groupName:groupName(found.groupId),towerName:tName,towerType:tType,notam:found.notam||'',rwy:found.rwy||'',notams:found.notams});
         break;
       }
 
       case 'tower_command':{
         const {clientId,landingTime,isOther,immediate}=msg;
         const status=isOther?msg.status:msg.status;  // 直接使用，不加前綴
+        const notamIndex=msg.notamIndex||0; // 有2個以上 NOTAM 時，塔台要指定這次指令是對哪一個
         const pilot=pilots.get(clientId); if(!pilot) return;
         if(pilot.groupId) updateGroupStatus(pilot.groupId,status,landingTime,immediate);
         else{
-          if(!canSendToPilot(pilot,status)){
-            ws.send(JSON.stringify({type:'error',message:dispName(pilot)+' 正在降落中，尚未回報，無法發送其他指令'}));
+          if(!canSendToPilot(pilot,status,notamIndex)){
+            ws.send(JSON.stringify({type:'error',message:dispName(pilot)+notamLabel(pilot,notamIndex)+' 正在降落中，尚未回報，無法發送其他指令'}));
             return;
           }
-          applyStatus(pilot,status,landingTime);
-          toPilot(clientId,{type:'command',status,landingTime:landingTime||null,immediate:!!immediate,groupName:'',time:pilot.lastMessageTime});
-          toFollowers(clientId,{type:'follower_sync',status,landingTime:landingTime||null,immediate:!!immediate,groupName:'',time:pilot.lastMessageTime});
+          applyStatus(pilot,status,landingTime,notamIndex);
+          const slot=notamSlot(pilot,notamIndex);
+          toPilot(clientId,{type:'command',status,landingTime:landingTime||null,immediate:!!immediate,groupName:'',time:slot.lastMessageTime,notamIndex,notamCode:slot.code||'',notamCount:pilot.notams.length});
+          toFollowers(clientId,{type:'follower_sync',status,landingTime:landingTime||null,immediate:!!immediate,groupName:'',time:slot.lastMessageTime});
           markGatherPending(clientId);
           broadcastPilots();
         }
@@ -365,6 +410,7 @@ wss.on('connection',ws=>{
           console.log('[MSG] available pilots:', Array.from(pilots.keys()));
           return;
         }
+        const notamIndex=msg.notamIndex||0;
         console.log('[MSG] sending to pilot:', pilot.name, 'clientId:', msg.clientId);
         // 確認 connections 裡有這個 clientId
         let found=false;
@@ -373,18 +419,20 @@ wss.on('connection',ws=>{
           if(c&&c.clientId===msg.clientId) found=true;
         });
         console.log('[MSG] connection found:', found);
-        if(!canSendToPilot(pilot,null)){
-          ws.send(JSON.stringify({type:'error',message:dispName(pilot)+' 正在降落中，尚未回報，無法發送訊息'}));
+        if(!canSendToPilot(pilot,null,notamIndex)){
+          ws.send(JSON.stringify({type:'error',message:dispName(pilot)+notamLabel(pilot,notamIndex)+' 正在降落中，尚未回報，無法發送訊息'}));
           break;
         }
         const msgTime=nowTimeStr();
-        pilot.lastMessage=msg.message;
-        pilot.lastMessageTime=msgTime;
-        pilot.lastCommType='message';
-        pilot.hasCommand=true;
-        pilot.ackPending=true; pilot.ackStatus='pending'; pilot.ackDeadline=Date.now()+30000;
-        pushComm(dispName(pilot),'tower',msg.message);
-        toPilot(msg.clientId,{type:'message',message:msg.message,time:msgTime});
+        const slot=notamSlot(pilot,notamIndex);
+        slot.lastMessage=msg.message;
+        slot.lastMessageTime=msgTime;
+        slot.lastCommType='message';
+        slot.hasCommand=true;
+        slot.ackPending=true; slot.ackStatus='pending'; slot.ackDeadline=Date.now()+30000;
+        syncLegacyFromSlot0(pilot);
+        pushComm(dispName(pilot),'tower',notamLabel(pilot,notamIndex)+msg.message);
+        toPilot(msg.clientId,{type:'message',message:msg.message,time:msgTime,notamIndex,notamCode:slot.code||'',notamCount:pilot.notams.length});
         toFollowers(msg.clientId,{type:'message',message:msg.message,time:msgTime});
         markGatherPending(msg.clientId);
         broadcastPilots();
@@ -553,12 +601,14 @@ wss.on('connection',ws=>{
             ep.pendingReset=false;
             ep.notam=''; ep.status='開機預備'; ep.ackStatus=''; ep.hasCommand=false;
             ep.towerConnected=false;
+            ep.notams=undefined; ensureNotams(ep); // 重新開一輪，NOTAM 清單也砍回只剩1個空白的
           }
           const wasTowerConnected=ep.towerConnected&&lastSeenSameDay;
           if(!wasTowerConnected) ep.towerConnected=false;
           ep.wifi=true; ep.lastSeen=Date.now();
           ep.roomCode=roomCode; ep.roomCodeExpiry=expiry;
           ep.battery=msg.battery||ep.battery||100;
+          ensureNotams(ep);
 
           ws.send(JSON.stringify({type:'registered',clientId,roomCode,reconnect:true}));
           broadcastPilots();
@@ -566,7 +616,7 @@ wss.on('connection',ws=>{
           // 如果之前已有塔台配對，自動重新發送 tower_connected，不需要塔台重新輸入序號
           if(wasTowerConnected){
             const {tName,tType}=getActiveTower(ep);
-            toPilot(clientId,{type:'tower_connected',groupName:groupName(ep.groupId),towerName:tName,towerType:tType,reconnect:true,notam:ep.notam||'',rwy:ep.rwy||''});
+            toPilot(clientId,{type:'tower_connected',groupName:groupName(ep.groupId),towerName:tName,towerType:tType,reconnect:true,notam:ep.notam||'',rwy:ep.rwy||'',notams:ep.notams});
           }
         } else {
           // 全新飛手
@@ -581,6 +631,7 @@ wss.on('connection',ws=>{
             landingTime:null,takeoffTime:null,towerConnected:false,
             connectedAt:new Date().toISOString(),
           });
+          ensureNotams(pilots.get(clientId));
           ws.send(JSON.stringify({type:'registered',clientId,roomCode}));
           broadcastPilots();
         }
@@ -602,20 +653,23 @@ wss.on('connection',ws=>{
       case 'pilot_ack':{
         const pilot=pilots.get(conn.clientId); if(!pilot) return;
         const ackType=msg.ackType||'ack'; // ack / takeoff / landing_ack / landing_done
-        pilot.ackPending = (ackType==='landing_ack'); // landing_ack 後還要等 landing_done
-        pilot.ackStatus=ackType;
+        const idx=msg.notamIndex||0;
+        const slot=notamSlot(pilot,idx);
+        slot.ackPending = (ackType==='landing_ack'); // landing_ack 後還要等 landing_done
+        slot.ackStatus=ackType;
         // 飛手回應（收到/已起飛/收到降落指令/降落完成）也記進飛行紀錄，帶回應時間
         const ackLabelMap={ack:'已收到',takeoff:'已起飛',landing_ack:'收到降落指令',landing_done:'降落完成'};
-        pushComm(dispName(pilot),'pilot',ackLabelMap[ackType]||ackType);
+        pushComm(dispName(pilot),'pilot',notamLabel(pilot,idx)+(ackLabelMap[ackType]||ackType));
         if(ackType==='landing_done'){
-          pilot.ackPending=false; pilot.landingLocked=false; pilot.landingReported=true;
+          slot.ackPending=false; slot.landingLocked=false; slot.landingReported=true;
           // 飛行紀錄的降落時間已經在 applyStatus() 送出「降落」指令當下記過了（塔台最後一次送的時間），
           // 這裡只是飛手確認，不要再多記一筆，只需要把參照清掉讓下一輪能重新建立
-          pendingLandingEntry.delete(pilot.clientId);
+          pendingLandingEntry.delete(pilot.clientId+':'+idx);
         }
+        syncLegacyFromSlot0(pilot);
         broadcastPilots();
-        if(ackLabelMap[ackType]) pushToOwnerTower(conn.clientId,{title:'飛手回報',body:dispName(pilot)+' '+ackLabelMap[ackType]});
-        console.log('[ACK] master clientId:', conn.clientId, 'ackType:', ackType);
+        if(ackLabelMap[ackType]) pushToOwnerTower(conn.clientId,{title:'飛手回報',body:dispName(pilot)+notamLabel(pilot,idx)+' '+ackLabelMap[ackType]});
+        console.log('[ACK] master clientId:', conn.clientId, 'ackType:', ackType, 'notamIndex:', idx);
         let followerCount=0;
         connections.forEach(c=>{ if(c.role==='follower'&&c.masterClientId===conn.clientId) followerCount++; });
         console.log('[ACK] followers found:', followerCount);
@@ -629,6 +683,33 @@ wss.on('connection',ws=>{
         toPilot(msg.clientId,{type:'notam_update',notam:msg.notam});
         toFollowers(msg.clientId,{type:'notam_update',notam:msg.notam});
         broadcastPilots();
+        break;
+      }
+
+      // 飛手（M5Stack）管理自己最多3個 NOTAM：新增／改代碼／刪除某一筆
+      case 'pilot_notam_manage':{
+        const pilot=pilots.get(conn.clientId); if(!pilot) return;
+        const ns=ensureNotams(pilot);
+        const action=msg.action;
+        const code=(msg.code||'').toString().slice(0,20);
+        if(action==='add'){
+          if(ns.length>=3) return;
+          ns.push({code, status:'開機預備', lastCommType:'status', hasCommand:false, landingTime:null, landingReason:'',
+            landingLocked:false, landingReported:false, ackPending:false, ackStatus:'', ackDeadline:null,
+            rwy:'', lastMessage:'', lastMessageTime:''});
+        } else if(action==='edit'){
+          const s=ns[msg.index]; if(!s) return;
+          s.code=code;
+        } else if(action==='remove'){
+          if(ns.length<=1) return; // 至少保留1筆
+          ns.splice(msg.index,1);
+          pendingLandingEntry.delete(pilot.clientId+':'+msg.index);
+        } else return;
+        syncLegacyFromSlot0(pilot);
+        broadcastPilots();
+        toPilot(conn.clientId,{type:'notams_update',notams:ns});
+        toOwnerTower(conn.clientId,{type:'pilot_notam_update',pilotName:dispName(pilot),clientId:conn.clientId,notam:ns[0].code});
+        toFollowers(conn.clientId,{type:'notam_update',notam:ns[0].code});
         break;
       }
 
@@ -662,9 +743,12 @@ wss.on('connection',ws=>{
       }
 
       case 'pilot_notam':{
+        // 舊版單一 NOTAM 路徑（M5Stack 只有1個 NOTAM 時用這個）：固定寫 slot 0
         const pilot=pilots.get(conn.clientId);
         if(!pilot) return;
-        pilot.notam=msg.notam;
+        const ns=ensureNotams(pilot);
+        ns[0].code=msg.notam;
+        syncLegacyFromSlot0(pilot);
         const today=todayStr();
         const hasStart=flightLog.some(r=>r.type==='notam_start'&&r.pilotName===dispName(pilot)&&r.date===today);
         if(!hasStart){
@@ -746,32 +830,38 @@ wss.on('connection',ws=>{
       case 'pilot_land_report':{
         const pilot=pilots.get(conn.clientId);
         if(!pilot) return;
-        pilot.status='降落';
-        pilot.ackStatus='landing_done';  // 更新回應狀態為已降落
-        pilot.ackPending=false;
-        pilot.landingLocked=false;
-        pilot.landingReported=true;
+        const idx=msg.notamIndex||0;
+        const slot=notamSlot(pilot,idx);
+        slot.status='降落';
+        slot.ackStatus='landing_done';  // 更新回應狀態為已降落
+        slot.ackPending=false;
+        slot.landingLocked=false;
+        slot.landingReported=true;
+        syncLegacyFromSlot0(pilot);
         const gn=groupName(pilot.groupId);
         const {tName,tType}=getActiveTower(pilot);
         const ldTime=nowTimeStr().replace(':','');
-        flightLog.push({date:todayStr(),groupName:gn,pilotName:dispName(pilot),type:'landing',time:ldTime,rwy:pilot.rwy||'',towerName:tName,towerType:tType});
-        pendingLandingEntry.delete(pilot.clientId); // 保險：這是飛手自己主動回報降落（沒有先前塔台指令），清掉任何殘留參照
-        pushComm(dispName(pilot),'pilot','回報降落');
+        flightLog.push({date:todayStr(),groupName:gn,pilotName:dispName(pilot),type:'landing',time:ldTime,rwy:slot.rwy||'',notam:slot.code||'',towerName:tName,towerType:tType});
+        pendingLandingEntry.delete(pilot.clientId+':'+idx); // 保險：這是飛手自己主動回報降落（沒有先前塔台指令），清掉任何殘留參照
+        pushComm(dispName(pilot),'pilot',notamLabel(pilot,idx)+'回報降落');
         broadcastPilots();
         toOwnerTower(conn.clientId,{type:'pilot_land_report',pilotName:dispName(pilot),clientId:conn.clientId});
-        pushToOwnerTower(conn.clientId,{title:'飛手回報',body:dispName(pilot)+' 回報降落'});
+        pushToOwnerTower(conn.clientId,{title:'飛手回報',body:dispName(pilot)+notamLabel(pilot,idx)+' 回報降落'});
         break;
       }
 
       case 'tower_rwy':{
         const pilot=pilots.get(msg.clientId);
         if(!pilot) return;
-        // 同分類的飛手要一起同步跑道方向，不是只有被點的那個
+        const idx=msg.notamIndex||0;
+        // 同分類的飛手要一起同步跑道方向，不是只有被點的那個（分類指令固定對第1個 NOTAM）
         const targets = pilot.groupId ? (groups.get(pilot.groupId)?.memberIds||[msg.clientId]) : [msg.clientId];
         targets.forEach(cid=>{
           const p=pilots.get(cid); if(!p) return;
-          p.rwy=msg.rwy;
-          toPilot(cid,{type:'rwy_update',rwy:msg.rwy});
+          const s=notamSlot(p,pilot.groupId?0:idx);
+          s.rwy=msg.rwy;
+          syncLegacyFromSlot0(p);
+          toPilot(cid,{type:'rwy_update',rwy:msg.rwy,notamIndex:pilot.groupId?0:idx});
           toFollowers(cid,{type:'rwy_update',rwy:msg.rwy});
         });
         broadcastPilots();

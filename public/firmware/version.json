@@ -1,5 +1,5 @@
 {
-  "version": 30,
-  "notes": "更多選單字縮小、關機按鈕改一行不重疊",
+  "version": 31,
+  "notes": "新增多NOTAM功能（最多3個，只有1個時操作方式不變）：主控可在公告畫面新增/切換/刪除NOTAM，每個獨立回報",
   "url": "https://droneatis-production.up.railway.app/firmware/esp32_pilot.bin"
 }

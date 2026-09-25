@@ -129,6 +129,12 @@ body{font-family:-apple-system,'Noto Sans TC',sans-serif;background:var(--bg);co
 .strip-row2 input,.strip-row2 select{background:var(--sf2);border:1px solid var(--bd);color:var(--tx);border-radius:6px;padding:5px 7px;font-size:13px;font-family:inherit;}
 .strip-row3{margin-top:6px;font-size:13px;color:var(--ac);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
 .strip-row3:empty{display:none;}
+/* 多 NOTAM（2個以上）：每個 NOTAM 各自一列，點了決定塔台發送區要對哪一個 NOTAM 動作 */
+.strip-notam-list{margin-top:8px;display:flex;flex-direction:column;gap:6px;}
+.strip-notam-row{display:flex;align-items:center;gap:8px;background:var(--sf2);border:1px solid var(--bd);border-radius:8px;padding:7px 10px;cursor:pointer;}
+.strip-notam-row.sel{border-color:var(--ac);background:var(--sf3);}
+.strip-notam-code{font-weight:700;color:var(--am);font-size:14px;flex-shrink:0;min-width:56px;}
+.strip-notam-headline{flex:1;min-width:0;font-size:14px;color:var(--tx);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
 .strip-meta{display:inline-flex;align-items:center;gap:10px;}
 .strip-loc{font-weight:700;background:rgba(0,230,118,.16);color:var(--gr);border-radius:99px;padding:3px 10px;text-decoration:none;}
 .strip-loc.off{background:var(--sf3);color:var(--tx2);font-weight:400;}
@@ -369,6 +375,7 @@ body{font-family:-apple-system,'Noto Sans TC',sans-serif;background:var(--bg);co
 <script>
 let ws=null, pilots=[], groups=[], flightLog=[], commLog=[];
 let selectedCid=null; // 多人模式：底部發送區目前作用的飛手
+let selectedNotamIndex=0; // 該飛手有2個以上NOTAM時，目前作用的是第幾個（只有1個時固定是0，跟現在行為一樣）
 let inputArrows=[];
 let towerName=localStorage.getItem('towerName')||'';
 let towerType=localStorage.getItem('towerType')||'南塔';
@@ -531,30 +538,36 @@ if('serviceWorker' in navigator){
 // 「馬上降落」的絕對截止時間伺服器不會回傳，塔台自己在送出當下記一份（clientId -> 當天總秒數）
 let immDeadline={}, landing60Fired={};
 function nowTotalSecs(){ const d=new Date(); return d.getHours()*3600+d.getMinutes()*60+d.getSeconds(); }
-function landDeadlineSecs(p){
-  if(immDeadline[p.clientId]!=null) return immDeadline[p.clientId];
-  if(!p.landingTime||p.landingTime.length<4) return null;
-  const lh=parseInt(p.landingTime.slice(0,2),10), lm=parseInt(p.landingTime.slice(2,4),10);
+function landDeadlineSecs(n,key){
+  if(immDeadline[key]!=null) return immDeadline[key];
+  if(!n.landingTime||n.landingTime.length<4) return null;
+  const lh=parseInt(n.landingTime.slice(0,2),10), lm=parseInt(n.landingTime.slice(2,4),10);
   if(isNaN(lh)||isNaN(lm)) return null;
   let s=lh*3600+lm*60-1; if(s<0) s+=86400;
   return s;
 }
 setInterval(()=>{
   pilots.forEach(p=>{
-    // 降落已回報完成 → 這輪倒數結束，清掉狀態讓下一次降落能重新提醒
-    if(p.ackStatus==='landing_done'){ delete landing60Fired[p.clientId]; delete immDeadline[p.clientId]; return; }
-    const deadline=landDeadlineSecs(p); if(deadline==null) return;
-    let diff=deadline-nowTotalSecs();
-    if(diff<-43200) diff+=86400;
-    if(diff<-15){ delete landing60Fired[p.clientId]; delete immDeadline[p.clientId]; return; } // 時間已過太久，不用再叫
-    if(diff<=60 && diff>10 && !landing60Fired[p.clientId]){
-      landing60Fired[p.clientId]=true;
-      towerBeep(); notifyTower('降落倒數', p.name+' 還有1分鐘降落');
-      showToast('⏰ '+p.name+' 還有1分鐘降落');
-    } else if(diff<=10 && diff>=0){
-      towerBeep();
-      showToast('⏰ '+p.name+' 降落倒數 '+diff+' 秒');
-    }
+    // 逐一檢查每個 NOTAM slot（只有1個時就只有 slot0，等於原本行為）
+    const slots=(p.notams&&p.notams.length)?p.notams:[p];
+    slots.forEach((n,idx)=>{
+      const key=p.clientId+':'+idx;
+      const label=slots.length>1?(p.name+'['+(n.code||('NOTAM'+(idx+1)))+']'):p.name;
+      // 降落已回報完成 → 這輪倒數結束，清掉狀態讓下一次降落能重新提醒
+      if(n.ackStatus==='landing_done'){ delete landing60Fired[key]; delete immDeadline[key]; return; }
+      const deadline=landDeadlineSecs(n,key); if(deadline==null) return;
+      let diff=deadline-nowTotalSecs();
+      if(diff<-43200) diff+=86400;
+      if(diff<-15){ delete landing60Fired[key]; delete immDeadline[key]; return; } // 時間已過太久，不用再叫
+      if(diff<=60 && diff>10 && !landing60Fired[key]){
+        landing60Fired[key]=true;
+        towerBeep(); notifyTower('降落倒數', label+' 還有1分鐘降落');
+        showToast('⏰ '+label+' 還有1分鐘降落');
+      } else if(diff<=10 && diff>=0){
+        towerBeep();
+        showToast('⏰ '+label+' 降落倒數 '+diff+' 秒');
+      }
+    });
   });
 },1000);
 
@@ -691,6 +704,35 @@ function stripRow2HTML(p){
 function stripRow3HTML(p){
   return (p.followers&&p.followers.length)?`👥 跟隨: ${escapeHtml(p.followers.map(f=>f.name).join(', '))}`:'';
 }
+// 同一個飛手身上某一個 NOTAM 的狀態文字（邏輯照搬 pilotHeadline，只是對象換成單一 NOTAM slot）
+function notamHeadline(n){
+  if(n.lastCommType==='message'&&n.lastMessage) return n.lastMessage;
+  if(!n.hasCommand) return '等待塔台來訊';
+  return n.status||'開機預備';
+}
+function notamTagHTML(n){
+  const ackInfo=ACK_MAP[n.ackStatus]||null;
+  if(ackInfo) return `<span class="ack-tag ${ackInfo[0]}">${ackInfo[1]}</span>`;
+  if(n.landingLocked) return `<span class="ack-tag land">🔒降落</span>`;
+  return '';
+}
+// 只有2個以上 NOTAM 才會顯示這一段；只有1個 NOTAM 的飛手完全不受影響，維持原本的畫面
+function stripNotamListHTML(p){
+  if(!p.notams||p.notams.length<2) return '';
+  return p.notams.map((n,i)=>{
+    const sel=(p.clientId===selectedCid && i===selectedNotamIndex);
+    return `<div class="strip-notam-row ${sel?'sel':''}" data-cid="${p.clientId}" data-idx="${i}">
+      <span class="strip-notam-code">${escapeHtml(n.code||('NOTAM'+(i+1)))}</span>
+      <span class="strip-notam-headline">${escapeHtml(notamHeadline(n))}</span>
+      ${notamTagHTML(n)}
+    </div>`;
+  }).join('');
+}
+// 目前底部發送區實際要對哪個 NOTAM 動作：只有1個時就是飛手本身（舊欄位），2個以上才是指定的那個 slot
+function effectiveSlot(p){
+  if(p.notams && p.notams.length>1) return p.notams[selectedNotamIndex]||p.notams[0];
+  return p;
+}
 function renderStrips(conn){
   const el=document.getElementById('pilotsList');
   el.innerHTML=conn.map(p=>`<div class="pilot-strip ${p.clientId===selectedCid?'sel':''} ${p.ackPending?'ack-pending':''}" id="strip_${p.clientId}" data-cid="${p.clientId}">
@@ -701,9 +743,13 @@ function renderStrips(conn){
       </div>
       <div class="strip-row2">${stripRow2HTML(p)}</div>
       <div class="strip-row3">${stripRow3HTML(p)}</div>
+      <div class="strip-notam-list">${stripNotamListHTML(p)}</div>
     </div>`).join('');
   el.querySelectorAll('.strip-row1').forEach(r=>{
     r.addEventListener('click',()=>{ selectPilot(r.dataset.cid); });
+  });
+  el.querySelectorAll('.strip-notam-row').forEach(r=>{
+    r.addEventListener('click',(e)=>{ e.stopPropagation(); selectNotam(r.dataset.cid,parseInt(r.dataset.idx,10)); });
   });
   el.querySelectorAll('.strip-rwy').forEach(inp=>{
     inp.addEventListener('input',()=>{
@@ -720,7 +766,15 @@ function renderStrips(conn){
 }
 function selectPilot(cid){
   selectedCid=cid;
+  selectedNotamIndex=0; // 切換飛手，NOTAM 選擇重置回第1個
   document.querySelectorAll('.pilot-strip').forEach(s=>s.classList.toggle('sel',s.dataset.cid===cid));
+  renderComposer();
+}
+function selectNotam(cid,idx){
+  selectedCid=cid; selectedNotamIndex=idx;
+  document.querySelectorAll('.pilot-strip').forEach(s=>s.classList.toggle('sel',s.dataset.cid===cid));
+  const p=pilots.find(x=>x.clientId===cid);
+  if(p){ const el=document.getElementById('strip_'+cid); if(el){ const list=el.querySelector('.strip-notam-list'); if(list) list.innerHTML=stripNotamListHTML(p); } }
   renderComposer();
 }
 window.addEventListener('resize',()=>{ if(typeof fitComposerPad==='function') fitComposerPad(); });
@@ -734,6 +788,7 @@ function updateStrip(p){
   const mt=el.querySelector('.strip-meta'); if(mt) mt.innerHTML=stripMetaHTML(p);
   const nm=el.querySelector('.strip-name'); if(nm) nm.textContent=p.name;
   const nt=el.querySelector('.strip-row2 b'); if(nt){ nt.textContent=p.notam||'未設定'; nt.style.color=p.notam?'var(--am)':'var(--tx2)'; }
+  const nl=el.querySelector('.strip-notam-list'); if(nl){ nl.innerHTML=stripNotamListHTML(p); nl.querySelectorAll('.strip-notam-row').forEach(r=>r.addEventListener('click',(e)=>{ e.stopPropagation(); selectNotam(r.dataset.cid,parseInt(r.dataset.idx,10)); })); }
   const rw=el.querySelector('.strip-rwy'); if(rw && document.activeElement!==rw) rw.value=(p.rwy||'').replace('RWY','');
   const gp=el.querySelector('.strip-grp');
   if(gp && document.activeElement!==gp){
@@ -753,9 +808,10 @@ function bindComposerOnce(){
     const txt=mi.value.trim();
     if(!selectedCid){ showToast('請先點選上方飛手'); return; }
     const p=pilots.find(x=>x.clientId===selectedCid);
-    if(p&&p.landingLocked){ showToast('降落鎖定中，無法發送訊息'); return; }
+    const slot=p&&effectiveSlot(p);
+    if(slot&&slot.landingLocked){ showToast('降落鎖定中，無法發送訊息'); return; }
     if(!txt){ showToast('請輸入訊息'); return; }
-    send({type:'tower_message',clientId:selectedCid,message:txt});
+    send({type:'tower_message',clientId:selectedCid,message:txt,notamIndex:selectedNotamIndex});
     showToast('訊息已發送'); mi.value='';
   };
   // 長按0.5秒才送出，避免手滑誤按發錯訊息給飛手
@@ -795,14 +851,16 @@ function syncComposer(){
   const p=pilots.find(x=>x.clientId===selectedCid);
   if(!p || !pilotsTabActive()){ mc.classList.remove('show'); fitComposerPad(); return; }
   mc.classList.add('show');
-  const locked=!!p.landingLocked;
-  document.getElementById('mcTarget').textContent='發送給：'+p.name;
+  const slot=effectiveSlot(p);
+  const locked=!!slot.landingLocked;
+  const notamTag=(p.notams&&p.notams.length>1)?(' ['+(slot.code||('NOTAM'+(selectedNotamIndex+1)))+']'):'';
+  document.getElementById('mcTarget').textContent='發送給：'+p.name+notamTag;
   document.getElementById('mcLock').style.display=locked?'block':'none';
   // 狀態按鈕格（比照單人模式）；降落鎖定時只留「降落」「馬上降落」
   const grid=document.getElementById('mcBtnGrid');
   grid.innerHTML=STATUSES.map(s=>{
     const dis=locked && !(s==='降落'||s==='馬上降落');
-    return `<button class="cmd-btn ${p.status===s?'active':''}" data-status="${s}" ${dis?'disabled':''}><span class="fill"></span><span class="lbl">${s}</span></button>`;
+    return `<button class="cmd-btn ${slot.status===s?'active':''}" data-status="${s}" ${dis?'disabled':''}><span class="fill"></span><span class="lbl">${s}</span></button>`;
   }).join('');
   // 長按0.5秒才觸發，避免在飛手列表快速滑動/點選時誤觸發送指令
   grid.querySelectorAll('.cmd-btn').forEach(b=>{
@@ -816,6 +874,8 @@ function syncComposer(){
 
 let pendingLandCid=null;
 let pendingMinCid=null;
+let pendingLandNotamIndex=0;
+let pendingMinNotamIndex=0;
 
 function markSelected(cid,status){
   // 底部發送區按鈕高亮
@@ -829,10 +889,12 @@ function markSelected(cid,status){
 // 統一處理指令動作（底部發送區的狀態按鈕）
 function handleStatusAction(cid,status){
   // 馬上降落：飛手端收到指令後自行倒數 1 分鐘（避免塔台/飛手時鐘不同步）
+  const notamIndex=selectedNotamIndex;
   if(status==='馬上降落'){
-    send({type:'tower_command',clientId:cid,status:'降落',landingTime:null,immediate:true});
+    send({type:'tower_command',clientId:cid,status:'降落',landingTime:null,immediate:true,notamIndex});
     // 塔台自己也記一份倒數截止秒，用來在還剩1分鐘/10秒內提醒（伺服器不會回傳這個絕對時間）
-    immDeadline[cid]=(nowTotalSecs()+60)%86400; landing60Fired[cid]=false;
+    const key=cid+':'+notamIndex;
+    immDeadline[key]=(nowTotalSecs()+60)%86400; landing60Fired[key]=false;
     showToast('馬上降落 → 收到後倒數1分鐘');
     markSelected(cid,status);
     return;
@@ -840,7 +902,7 @@ function handleStatusAction(cid,status){
 
   // 幾分鐘後有機會：彈出底部面板輸入分鐘數
   if(status==='幾分鐘後有機會'){
-    pendingMinCid=cid;
+    pendingMinCid=cid; pendingMinNotamIndex=notamIndex;
     document.getElementById('minPanelInput').value='';
     document.getElementById('minPanel').classList.add('show');
     setTimeout(()=>document.getElementById('minPanelInput').focus(),100);
@@ -849,14 +911,14 @@ function handleStatusAction(cid,status){
 
   if(status==='降落'){
     // 彈出底部面板輸入降落時間
-    pendingLandCid=cid;
+    pendingLandCid=cid; pendingLandNotamIndex=notamIndex;
     document.getElementById('landPanelInput').value='';
     document.getElementById('landPanel').classList.add('show');
     setTimeout(()=>document.getElementById('landPanelInput').focus(),100);
     return;
   }
 
-  send({type:'tower_command',clientId:cid,status,landingTime:null});
+  send({type:'tower_command',clientId:cid,status,landingTime:null,notamIndex});
   showToast(`已發送：${status}`);
   markSelected(cid,status);
 }
@@ -886,8 +948,9 @@ document.getElementById('btnLandSend').addEventListener('click',()=>{
     return;
   }
   if(pendingLandCid){
-    send({type:'tower_command',clientId:pendingLandCid,status:'降落',landingTime:val});
-    delete immDeadline[pendingLandCid]; landing60Fired[pendingLandCid]=false; // 改用明確時間，不再套用馬上降落的絕對截止秒
+    send({type:'tower_command',clientId:pendingLandCid,status:'降落',landingTime:val,notamIndex:pendingLandNotamIndex});
+    const key=pendingLandCid+':'+pendingLandNotamIndex;
+    delete immDeadline[key]; landing60Fired[key]=false; // 改用明確時間，不再套用馬上降落的絕對截止秒
     showToast('降落指令已發送：'+val);
     const cid2=pendingLandCid; pendingLandCid=null;
     setTimeout(()=>markSelected(cid2,'降落'),100);
@@ -906,7 +969,7 @@ document.getElementById('btnMinSend').addEventListener('click',()=>{
   if(!raw||isNaN(n)||n<=0){showToast('請輸入有效的分鐘數');return;}
   if(pendingMinCid){
     const msg=n+'分鐘後有機會';
-    send({type:'tower_command',clientId:pendingMinCid,status:msg,landingTime:null,isOther:true});
+    send({type:'tower_command',clientId:pendingMinCid,status:msg,landingTime:null,isOther:true,notamIndex:pendingMinNotamIndex});
     showToast(msg);
     const cid2=pendingMinCid; pendingMinCid=null;
     setTimeout(()=>markSelected(cid2,'幾分鐘後有機會'),100);
