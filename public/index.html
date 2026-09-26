@@ -121,7 +121,7 @@ body{font-family:-apple-system,'Noto Sans TC',sans-serif;background:var(--bg);co
 .strip-status{flex:1;min-width:0;font-size:19px;color:var(--tx);}
 .strip-status .strip-headline{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
 .strip-status .sub{font-size:14px;color:var(--tx2);}
-.strip-time{font-size:13px;color:var(--ac);margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.strip-time{font-size:13px;color:var(--ac);margin-bottom:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
 .strip-tags{display:flex;gap:4px;flex-shrink:0;align-items:center;flex-wrap:wrap;justify-content:flex-end;max-width:44%;}
 .strip-row2{display:flex;align-items:center;gap:10px;margin-top:8px;font-size:13px;color:var(--tx2);overflow-x:auto;white-space:nowrap;scrollbar-width:none;}
 .strip-row2::-webkit-scrollbar{width:0;height:0;}
@@ -700,10 +700,11 @@ function stripStatusHTML(p){
   if(p.notams && p.notams.length>1){
     return `<div class="strip-headline"><span class="sub">${p.battery??'—'}%</span></div>`;
   }
+  // 來訊時間放在上面那一行；訊息內容如果很長會被截斷，之前時間放在訊息下面常常被擋住看不到
   const tt = p.lastMessageTime
     ? `<div class="strip-time">🕐 塔台 ${escapeHtml(p.lastMessageTime)} 發送</div>`
     : '';
-  return `<div class="strip-headline">${escapeHtml(pilotHeadline(p))}<span class="sub"> · ${p.battery??'—'}%</span></div>${tt}`;
+  return `${tt}<div class="strip-headline">${escapeHtml(pilotHeadline(p))}<span class="sub"> · ${p.battery??'—'}%</span></div>`;
 }
 function stripMetaHTML(p){
   return (p.gps===true && p.lat && p.lng)
