@@ -698,13 +698,10 @@ function stripMetaHTML(p){
 }
 // 飛航公告放最前面，定位放最後面
 function stripRow2HTML(p){
-  const content=`<span style="font-size:16px">飛航公告 <b style="color:${p.notam?'var(--am)':'var(--tx2)'}">${escapeHtml(p.notam||'未設定')}</b></span>`
+  return `<span style="font-size:16px">飛航公告 <b style="color:${p.notam?'var(--am)':'var(--tx2)'}">${escapeHtml(p.notam||'未設定')}</b></span>`
     +`<span>跑道 RWY <input class="strip-rwy" data-cid="${p.clientId}" inputmode="numeric" maxlength="2" value="${escapeHtml((p.rwy||'').replace('RWY',''))}" style="width:44px;letter-spacing:2px"></span>`
     +`<span>分類 <select class="strip-grp" data-cid="${p.clientId}"><option value="">未分類</option>${groups.map(g=>`<option value="${g.groupId}" ${p.groupId===g.groupId?'selected':''}>${escapeHtml(g.name)}</option>`).join('')}</select></span>`
     +`<span class="strip-meta">${stripMetaHTML(p)}</span>`;
-  // 多 NOTAM 時，飛航公告已經在下面那一欄各自顯示，這裡不重複顯示，但位置保留不要讓下面的內容往上擠
-  if(p.notams && p.notams.length>1) return `<span style="visibility:hidden">${content}</span>`;
-  return content;
 }
 function stripRow3HTML(p){
   return (p.followers&&p.followers.length)?`👥 跟隨: ${escapeHtml(p.followers.map(f=>f.name).join(', '))}`:'';
@@ -740,16 +737,22 @@ function effectiveSlot(p){
 }
 function renderStrips(conn){
   const el=document.getElementById('pilotsList');
-  el.innerHTML=conn.map(p=>`<div class="pilot-strip ${p.clientId===selectedCid?'sel':''} ${p.ackPending?'ack-pending':''}" id="strip_${p.clientId}" data-cid="${p.clientId}">
+  el.innerHTML=conn.map(p=>{
+    const multi=p.notams && p.notams.length>1;
+    const row2=`<div class="strip-row2">${stripRow2HTML(p)}</div>`;
+    const notamList=`<div class="strip-notam-list">${stripNotamListHTML(p)}</div>`;
+    // 多 NOTAM 時，飛航公告/跑道/分類要排在每個 NOTAM 列表後面，而不是名字正下方
+    const middle=multi?(notamList+row2):(row2+notamList);
+    return `<div class="pilot-strip ${p.clientId===selectedCid?'sel':''} ${p.ackPending?'ack-pending':''}" id="strip_${p.clientId}" data-cid="${p.clientId}">
       <div class="strip-row1" data-cid="${p.clientId}">
         <span class="strip-name">${escapeHtml(p.name)}</span>
         <span class="strip-status">${stripStatusHTML(p)}</span>
         <span class="strip-tags">${stripTagsHTML(p)}</span>
       </div>
-      <div class="strip-row2">${stripRow2HTML(p)}</div>
+      ${middle}
       <div class="strip-row3">${stripRow3HTML(p)}</div>
-      <div class="strip-notam-list">${stripNotamListHTML(p)}</div>
-    </div>`).join('');
+    </div>`;
+  }).join('');
   el.querySelectorAll('.strip-row1').forEach(r=>{
     r.addEventListener('click',()=>{ selectPilot(r.dataset.cid); });
   });
@@ -794,6 +797,14 @@ function updateStrip(p){
   const nm=el.querySelector('.strip-name'); if(nm) nm.textContent=p.name;
   const nt=el.querySelector('.strip-row2 b'); if(nt){ nt.textContent=p.notam||'未設定'; nt.style.color=p.notam?'var(--am)':'var(--tx2)'; }
   const nl=el.querySelector('.strip-notam-list'); if(nl){ nl.innerHTML=stripNotamListHTML(p); nl.querySelectorAll('.strip-notam-row').forEach(r=>r.addEventListener('click',(e)=>{ e.stopPropagation(); selectNotam(r.dataset.cid,parseInt(r.dataset.idx,10)); })); }
+  // 多 NOTAM 數量在飛手連線中途才變化（例如新增/刪除第2個 NOTAM）：把飛航公告/跑道/分類那條移到 NOTAM 列表後面（或移回名字下方），
+  // 用搬移既有節點而不是重建，才不會把使用者正在輸入的跑道/分類打斷、也不用重新綁定事件
+  const row2El=el.querySelector('.strip-row2'); const row3El=el.querySelector('.strip-row3');
+  if(row2El && nl && row3El){
+    const multi=p.notams && p.notams.length>1;
+    if(multi){ el.insertBefore(nl,row2El); el.insertBefore(row2El,row3El); }
+    else { el.insertBefore(row2El,nl); }
+  }
   const rw=el.querySelector('.strip-rwy'); if(rw && document.activeElement!==rw) rw.value=(p.rwy||'').replace('RWY','');
   const gp=el.querySelector('.strip-grp');
   if(gp && document.activeElement!==gp){
