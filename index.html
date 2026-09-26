@@ -136,7 +136,7 @@ body{font-family:-apple-system,'Noto Sans TC',sans-serif;background:var(--bg);co
 .strip-notam-row{display:flex;flex-direction:column;gap:6px;background:var(--sf2);border:1px solid var(--bd);border-radius:8px;padding:7px 10px;cursor:pointer;}
 .strip-notam-row.sel{border-color:var(--ac);background:var(--sf3);}
 .strip-notam-row-top{display:flex;align-items:center;gap:8px;}
-.strip-notam-code{font-weight:700;color:var(--am);font-size:14px;flex-shrink:0;min-width:56px;}
+.strip-notam-code{font-weight:700;color:var(--am);font-size:18px;flex-shrink:0;min-width:64px;}
 .strip-notam-headline{flex:1;min-width:0;font-size:14px;color:var(--tx);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
 .strip-notam-rwygrp{display:flex;align-items:center;gap:10px;font-size:13px;color:var(--tx2);flex-wrap:wrap;}
 .strip-notam-rwygrp input,.strip-notam-rwygrp select{background:var(--sf3);border:1px solid var(--bd);color:var(--tx);border-radius:6px;padding:5px 7px;font-size:13px;font-family:inherit;}
@@ -751,6 +751,9 @@ function bindNotamListHandlers(container){
     r.addEventListener('click',(e)=>{ e.stopPropagation(); selectNotam(r.dataset.cid,parseInt(r.dataset.idx,10)); });
   });
   container.querySelectorAll('.strip-notam-rwy').forEach(inp=>{
+    // 點輸入框本身不要冒泡到整列的點擊事件——不然每次點擊都會觸發整段 NOTAM 清單重建，
+    // 剛拿到的輸入焦點立刻被打斷，變成完全打不了字
+    inp.addEventListener('click',(e)=>e.stopPropagation());
     inp.addEventListener('input',()=>{
       inp.value=inp.value.replace(/[^0-9]/g,'');
       if(inp.value.length===2){
@@ -761,6 +764,7 @@ function bindNotamListHandlers(container){
     });
   });
   container.querySelectorAll('.strip-notam-grp').forEach(sel=>{
+    sel.addEventListener('click',(e)=>e.stopPropagation());
     sel.addEventListener('change',()=>{
       const idx=parseInt(sel.dataset.idx,10);
       send({type:'tower_assign_group',clientId:sel.dataset.cid,notamIndex:idx,groupId:sel.value||null});
