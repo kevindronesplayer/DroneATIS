@@ -1,5 +1,5 @@
 {
-  "version": 39,
-  "notes": "多NOTAM清單畫面框再加高一點、行距加大，字不會再擠在一起重疊",
+  "version": 40,
+  "notes": "單一NOTAM待命畫面：塔台來訊時間往上移，不會再被短訊息放大顯示的字擋住",
   "url": "https://droneatis-production.up.railway.app/firmware/esp32_pilot.bin"
 }

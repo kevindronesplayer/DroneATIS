@@ -23,7 +23,7 @@
 #define GPS_RX_PIN    32   // Core2 PORT.A（外接I2C腳位，這裡改當UART用；訊號1=RXD）
 #define GPS_TX_PIN    33   // Core2 PORT.A（訊號2=TXD）
 #define GPS_BAUD      115200
-#define FW_VERSION    39
+#define FW_VERSION    40
 #define UPDATE_CHECK_URL "https://droneatis-production.up.railway.app/firmware/version.json"
 
 // ── NVS 儲存 ─────────────────────────────────────────────────────────────────
@@ -1257,10 +1257,10 @@ void drawIdle(){
   bool hasReason=(currentStatus=="降落"&&landingTimeStr.length()>0&&landingReason.length()>0);
   M5.Display.setTextDatum(middle_center);
 
-  // 塔台來訊時間放在內容上方（跟 line 一樣）
+  // 塔台來訊時間放在內容上方（跟 line 一樣）；短訊息的字會被放大顯示，太靠近會被蓋到，往上挪一點
   if(everReceivedCommand && lastMessageTime.length()>0){
     fXs(); M5.Display.setTextColor(CLR_GRAY);
-    M5.Display.drawString("塔台 "+lastMessageTime+" 來訊",160,128);
+    M5.Display.drawString("塔台 "+lastMessageTime+" 來訊",160,116);
   }
 
   // 手動訊息跟選單狀態不同時顯示，看哪個是最新收到的
