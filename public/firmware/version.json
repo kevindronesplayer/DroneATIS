@@ -1,5 +1,5 @@
 {
-  "version": 36,
-  "notes": "多NOTAM清單畫面：跑道/分類改放右邊，不再往下擠占空間；模式選擇畫面關機/WiFi按鍵加大，3個模式按鈕之間的觸控死角補上，比較好按準",
+  "version": 37,
+  "notes": "多NOTAM清單畫面：跑道和分類改成上下排列（不是同一行），每個NOTAM的框加高，字不會擠在一起重疊",
   "url": "https://droneatis-production.up.railway.app/firmware/esp32_pilot.bin"
 }

@@ -23,7 +23,7 @@
 #define GPS_RX_PIN    32   // Core2 PORT.A（外接I2C腳位，這裡改當UART用；訊號1=RXD）
 #define GPS_TX_PIN    33   // Core2 PORT.A（訊號2=TXD）
 #define GPS_BAUD      115200
-#define FW_VERSION    36
+#define FW_VERSION    37
 #define UPDATE_CHECK_URL "https://droneatis-production.up.railway.app/firmware/version.json"
 
 // ── NVS 儲存 ─────────────────────────────────────────────────────────────────
@@ -1133,7 +1133,7 @@ void drawNotamList(){
   fXs(); M5.Display.setTextDatum(middle_left);
   M5.Display.setTextColor(ok?CLR_GREEN:CLR_RED);
   M5.Display.drawString(ok?("● "+towerType+" "+towerName):"● 無連線",8,42);
-  int y=54, rh=44, gap=6;
+  int y=54, rh=54, gap=6;
   for(int i=0;i<notamCount;i++){
     NotamRowView v=notamRowView(i);
     uint16_t bd=CLR_GRAY;
@@ -1147,13 +1147,12 @@ void drawNotamList(){
     fXs(); M5.Display.setTextColor(CLR_WHITE);
     String statusText=v.showingMessage?v.lastMessage:v.statusText;
     M5.Display.drawString(statusText,16,y+30);
-    // 塔台如果有幫這筆 NOTAM 設跑道/分類，放右邊（不佔下面空間）：回應標籤在右上、跑道/分類在右下，
-    // 跟左邊代碼(上)/狀態(下)對齊，兩邊都是2行，彼此不會疊到
+    // 塔台如果有幫這筆 NOTAM 設跑道/分類，放右邊、上下排列（不要跟代碼/狀態同一行擠成一長串）：
+    // 回應標籤在右上，跑道再下面一行，分類最下面一行；框加高一點才擺得下這3行，字不會疊在一起
     M5.Display.setTextDatum(middle_right);
-    if(tag.length()){ M5.Display.setTextColor(bd); M5.Display.drawString(tag,272,y+14); }
-    String rg=v.rwy;
-    if(v.groupName.length()){ if(rg.length()) rg+="  "; rg+="["+v.groupName+"]"; }
-    if(rg.length()){ M5.Display.setTextColor(CLR_ACCENT); M5.Display.drawString(rg,272,y+30); }
+    if(tag.length()){ M5.Display.setTextColor(bd); M5.Display.drawString(tag,272,y+12); }
+    if(v.rwy.length()){ M5.Display.setTextColor(CLR_WHITE); M5.Display.drawString(v.rwy,272,y+28); }
+    if(v.groupName.length()){ M5.Display.setTextColor(CLR_ACCENT); M5.Display.drawString("["+v.groupName+"]",272,y+44); }
     M5.Display.fillRoundRect(284,y,28,rh,6,CLR_SURFACE); M5.Display.drawRoundRect(284,y,28,rh,6,CLR_RED);
     fSm(); M5.Display.setTextDatum(middle_center); M5.Display.setTextColor(CLR_RED); M5.Display.drawString("X",298,y+rh/2);
     y+=rh+gap;
@@ -1186,7 +1185,7 @@ void drawNotamDeleteConfirm(int idx){
 }
 
 void handleNotamListTouch(int tx,int ty){
-  int y=54, rh=44, gap=6;
+  int y=54, rh=54, gap=6;
   for(int i=0;i<notamCount;i++){
     if(ty>=y&&ty<=y+rh){
       if(tx>=284&&tx<=312){ if(notamCount>1) drawNotamDeleteConfirm(i); return; }

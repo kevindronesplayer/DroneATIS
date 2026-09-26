@@ -689,6 +689,11 @@ function stripTagsHTML(p){
 }
 // 狀態文字下面加一行發送時間（跟著訊息內容走，不要跟位置擠在一起被截斷）
 function stripStatusHTML(p){
+  // 多 NOTAM 時，這裡以前顯示的其實只是第1筆 NOTAM（slot 0）的塔台訊息/狀態，
+  // 容易被誤會成是整體狀態；現在每筆 NOTAM 都在下面各自顯示了，名字旁邊就不重複顯示
+  if(p.notams && p.notams.length>1){
+    return `<div class="strip-headline"><span class="sub">${p.battery??'—'}%</span></div>`;
+  }
   const tt = p.lastMessageTime
     ? `<div class="strip-time">🕐 塔台 ${escapeHtml(p.lastMessageTime)} 發送</div>`
     : '';
