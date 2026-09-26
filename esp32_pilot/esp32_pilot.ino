@@ -23,7 +23,7 @@
 #define GPS_RX_PIN    32   // Core2 PORT.A（外接I2C腳位，這裡改當UART用；訊號1=RXD）
 #define GPS_TX_PIN    33   // Core2 PORT.A（訊號2=TXD）
 #define GPS_BAUD      115200
-#define FW_VERSION    35
+#define FW_VERSION    36
 #define UPDATE_CHECK_URL "https://droneatis-production.up.railway.app/firmware/version.json"
 
 // ── NVS 儲存 ─────────────────────────────────────────────────────────────────
@@ -653,13 +653,13 @@ void drawModeSelect(){
   M5.Display.drawString("DroneATIS",150,24);
   M5.Display.setFont(nullptr); M5.Display.setTextSize(1); M5.Display.setTextColor(CLR_GRAY);
   M5.Display.drawString(pilotName,150,46);
-  // 關機鍵（右上角）
-  M5.Display.fillRoundRect(240,4,76,30,7,CLR_SURFACE); M5.Display.drawRoundRect(240,4,76,30,7,CLR_RED);
+  // 關機鍵（右上角）：原本太小很難點準，加大範圍
+  M5.Display.fillRoundRect(220,2,98,38,8,CLR_SURFACE); M5.Display.drawRoundRect(220,2,98,38,8,CLR_RED);
   fSm(); M5.Display.setTextDatum(middle_center); M5.Display.setTextColor(CLR_RED);
-  M5.Display.drawString("關機",278,18);
-  // WiFi鍵（左上角）：連不上網路、卡在這頁選不了模式時，不用先硬選一個模式才能改 WiFi
-  M5.Display.fillRoundRect(4,4,70,30,7,CLR_SURFACE); M5.Display.drawRoundRect(4,4,70,30,7,CLR_ACCENT);
-  M5.Display.setTextColor(CLR_ACCENT); M5.Display.drawString("WiFi",39,18);
+  M5.Display.drawString("關機",269,21);
+  // WiFi鍵（左上角）：連不上網路、卡在這頁選不了模式時，不用先硬選一個模式才能改 WiFi；同樣加大
+  M5.Display.fillRoundRect(2,2,86,38,8,CLR_SURFACE); M5.Display.drawRoundRect(2,2,86,38,8,CLR_ACCENT);
+  M5.Display.setTextColor(CLR_ACCENT); M5.Display.drawString("WiFi",45,21);
   // 說明文字用縮小字避免爆框
   #define MSSUB(txt,cy,col) do{ M5.Display.setFont(&fonts::efontTW_24); M5.Display.setTextSize(0.62); M5.Display.setTextColor(col); M5.Display.drawString(txt,160,cy); }while(0)
   // 主控模式
@@ -1133,12 +1133,9 @@ void drawNotamList(){
   fXs(); M5.Display.setTextDatum(middle_left);
   M5.Display.setTextColor(ok?CLR_GREEN:CLR_RED);
   M5.Display.drawString(ok?("● "+towerType+" "+towerName):"● 無連線",8,42);
-  int y=54, gap=6;
+  int y=54, rh=44, gap=6;
   for(int i=0;i<notamCount;i++){
     NotamRowView v=notamRowView(i);
-    // 塔台如果有幫這筆 NOTAM 設跑道或分類，多一行顯示；沒設就跟以前一樣兩行就好，不多佔空間
-    bool hasExtra=(v.rwy.length()>0||v.groupName.length()>0);
-    int rh=hasExtra?52:44;
     uint16_t bd=CLR_GRAY;
     String tag="";
     if(v.ackPending){ bd=CLR_AMBER; tag="待回應"; }
@@ -1150,13 +1147,13 @@ void drawNotamList(){
     fXs(); M5.Display.setTextColor(CLR_WHITE);
     String statusText=v.showingMessage?v.lastMessage:v.statusText;
     M5.Display.drawString(statusText,16,y+30);
-    if(hasExtra){
-      String extra=v.rwy;
-      if(v.groupName.length()){ if(extra.length()) extra+="  "; extra+="["+v.groupName+"]"; }
-      M5.Display.setTextColor(CLR_ACCENT);
-      M5.Display.drawString(extra,16,y+44);
-    }
-    if(tag.length()){ M5.Display.setTextDatum(middle_right); M5.Display.setTextColor(bd); M5.Display.drawString(tag,272,y+rh/2); }
+    // 塔台如果有幫這筆 NOTAM 設跑道/分類，放右邊（不佔下面空間）：回應標籤在右上、跑道/分類在右下，
+    // 跟左邊代碼(上)/狀態(下)對齊，兩邊都是2行，彼此不會疊到
+    M5.Display.setTextDatum(middle_right);
+    if(tag.length()){ M5.Display.setTextColor(bd); M5.Display.drawString(tag,272,y+14); }
+    String rg=v.rwy;
+    if(v.groupName.length()){ if(rg.length()) rg+="  "; rg+="["+v.groupName+"]"; }
+    if(rg.length()){ M5.Display.setTextColor(CLR_ACCENT); M5.Display.drawString(rg,272,y+30); }
     M5.Display.fillRoundRect(284,y,28,rh,6,CLR_SURFACE); M5.Display.drawRoundRect(284,y,28,rh,6,CLR_RED);
     fSm(); M5.Display.setTextDatum(middle_center); M5.Display.setTextColor(CLR_RED); M5.Display.drawString("X",298,y+rh/2);
     y+=rh+gap;
@@ -1189,11 +1186,8 @@ void drawNotamDeleteConfirm(int idx){
 }
 
 void handleNotamListTouch(int tx,int ty){
-  int y=54, gap=6;
+  int y=54, rh=44, gap=6;
   for(int i=0;i<notamCount;i++){
-    // 觸控範圍要跟 drawNotamList() 畫出來的列高一致（有設跑道/分類的列比較高），不然點下去會對不上
-    NotamRowView v=notamRowView(i);
-    int rh=(v.rwy.length()>0||v.groupName.length()>0)?52:44;
     if(ty>=y&&ty<=y+rh){
       if(tx>=284&&tx<=312){ if(notamCount>1) drawNotamDeleteConfirm(i); return; }
       if(tx>=8&&tx<=278){ goToNotamDetail(i); return; }
@@ -1749,12 +1743,15 @@ void handleTouch(){
     return;
   }
   if(currentScreen==SCR_MODE_SELECT){
-    if(ty<=36&&tx>=232){ drawPoweroffConfirm(); return; } // 右上角關機
-    if(ty<=36&&tx<74){ drawWifiChangeConfirm(); return; } // 左上角更換WiFi
-    if(ty>=36&&ty<60&&tx<230){ kbBuffer=pilotName; kbHint="更改飛手名字（英文小寫）"; kbTarget="rename_mode"; kbShift=false; kbPage=0; kbMaxLen=10; currentScreen=SCR_NAME_INPUT; drawKeyboard(); return; }
-    if(ty>=62&&ty<=118){ pilotMode=MODE_MASTER; connectWebSocket(); }
-    else if(ty>=124&&ty<=180){ pilotMode=MODE_FOLLOWER; gpsEnabled=false; gpsFixed=false; drawFollowerInput(); }
-    else if(ty>=186&&ty<=238){ pilotMode=MODE_GATHER; gpsEnabled=false; gpsFixed=false; drawFollowerInput(); }
+    // 關機/WiFi 按鍵原本太小，這裡的觸控範圍要跟著上面加大過的畫面對齊
+    if(ty<=42&&tx>=210){ drawPoweroffConfirm(); return; } // 右上角關機
+    if(ty<=42&&tx<96){ drawWifiChangeConfirm(); return; } // 左上角更換WiFi
+    if(ty>42&&ty<60&&tx>=96&&tx<210){ kbBuffer=pilotName; kbHint="更改飛手名字（英文小寫）"; kbTarget="rename_mode"; kbShift=false; kbPage=0; kbMaxLen=10; currentScreen=SCR_NAME_INPUT; drawKeyboard(); return; }
+    // 3個模式按鈕原本中間留了空隙，常常點在縫上沒反應；觸控範圍改成緊接著分（以兩顆按鈕正中間為界），
+    // 上下也各往外延伸一點，不用剛好點在畫的框線內才有效
+    if(ty>=56&&ty<=121){ pilotMode=MODE_MASTER; connectWebSocket(); }
+    else if(ty>121&&ty<=183){ pilotMode=MODE_FOLLOWER; gpsEnabled=false; gpsFixed=false; drawFollowerInput(); }
+    else if(ty>183&&ty<=240){ pilotMode=MODE_GATHER; gpsEnabled=false; gpsFixed=false; drawFollowerInput(); }
     return;
   }
   if(currentScreen==SCR_IDLE){

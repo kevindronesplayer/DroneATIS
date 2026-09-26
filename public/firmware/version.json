@@ -1,5 +1,5 @@
 {
-  "version": 35,
-  "notes": "飛航公告設定/新增NOTAM的觸控往下移一點，不要跟塔台連線狀態貼太近；多NOTAM清單畫面顯示塔台有設定的跑道/分類；顯示序號畫面新增關機按鈕",
+  "version": 36,
+  "notes": "多NOTAM清單畫面：跑道/分類改放右邊，不再往下擠占空間；模式選擇畫面關機/WiFi按鍵加大，3個模式按鈕之間的觸控死角補上，比較好按準",
   "url": "https://droneatis-production.up.railway.app/firmware/esp32_pilot.bin"
 }
