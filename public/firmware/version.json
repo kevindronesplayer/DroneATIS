@@ -1,5 +1,5 @@
 {
-  "version": 33,
-  "notes": "修正多NOTAM相關觸控失靈：刪除NOTAM、編輯NOTAM確認、實體按鈕取消輸入後畫面卡死不能按的問題；塔台指令/訊息畫面在多NOTAM時標示是哪一則",
+  "version": 34,
+  "notes": "多NOTAM時，塔台發指令/訊息給M5Stack目前沒在顯示的那個NOTAM，現在會直接切過去顯示（之前只會震動、畫面不會跳），原本正在看的NOTAM狀態會先存好不會遺失",
   "url": "https://droneatis-production.up.railway.app/firmware/esp32_pilot.bin"
 }

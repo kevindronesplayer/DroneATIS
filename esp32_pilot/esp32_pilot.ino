@@ -23,7 +23,7 @@
 #define GPS_RX_PIN    32   // Core2 PORT.A（外接I2C腳位，這裡改當UART用；訊號1=RXD）
 #define GPS_TX_PIN    33   // Core2 PORT.A（訊號2=TXD）
 #define GPS_BAUD      115200
-#define FW_VERSION    33
+#define FW_VERSION    34
 #define UPDATE_CHECK_URL "https://droneatis-production.up.railway.app/firmware/version.json"
 
 // ── NVS 儲存 ─────────────────────────────────────────────────────────────────
@@ -231,37 +231,6 @@ void switchToNotamSlot(int idx){
   showingMessage=s.showingMessage; everReceivedCommand=s.everReceivedCommand; ackPending=s.ackPending;
   landState=s.landState; immEndSec=s.immEndSec;
 }
-// 幫背景（目前沒在看）的某個 NOTAM slot 套用剛收到的塔台指令/訊息，不動畫面
-void applyCommandToSlot(NotamSlot &s, JsonDocument &doc, bool isMessage){
-  String st=doc["time"]|""; if(st.length()==0) st=getNowTime(); if(st=="--:--") st="";
-  if(isMessage){
-    s.showingMessage=true; s.everReceivedCommand=true;
-    s.lastMessage=doc["message"].as<String>(); s.landState=LAND_NONE; s.lastMessageTime=st;
-  } else {
-    s.showingMessage=false; s.everReceivedCommand=true;
-    s.status=doc["status"].as<String>();
-    bool immediateLand=doc["immediate"]|false;
-    JsonVariant lt=doc["landingTime"];
-    s.landingReason="";
-    if(immediateLand){
-      s.immEndSec=(getNowTotalSecs()+60)%86400;
-      char buf[5]; sprintf(buf,"%02d%02d",s.immEndSec/3600,(s.immEndSec/60)%60);
-      s.landingTimeStr=String(buf);
-    } else if(lt.isNull()||lt.as<String>()=="null"||lt.as<String>()==""){ s.landingTimeStr=""; s.immEndSec=-1; }
-    else {
-      s.immEndSec=-1;
-      String raw=lt.as<String>();
-      if(raw.length()>=4&&isDigit(raw[0])&&isDigit(raw[1])&&isDigit(raw[2])&&isDigit(raw[3])){
-        s.landingTimeStr=raw.substring(0,4);
-        if(raw.length()>4) s.landingReason=raw.substring(4);
-      } else s.landingTimeStr=raw;
-    }
-    s.lastMessageTime=st;
-    s.landState=(s.status=="降落")?LAND_WAIT_ACK:LAND_NONE;
-  }
-  if(NEEDS_ACK) s.ackPending=true;
-}
-
 // 清單第 i 列要顯示的內容：如果是目前正在看的那個，資料還在全域變數裡（還沒存回陣列），
 // 其餘的才是 notamSlots[i] 裡存好的
 NotamRowView notamRowView(int i){
@@ -954,17 +923,14 @@ void webSocketEvent(WStype_t wsType, uint8_t* payload, size_t length){
         if(currentScreen==SCR_IDLE||currentScreen==SCR_COMMAND) updateClock();
       }
       else if(type=="command"||type=="follower_sync"){
-        // 多 NOTAM（只有主控才有這個概念）：指令是給「目前沒在看」的那個 NOTAM，
-        // 背景更新那個 slot 就好，不要打斷畫面、不要把它的內容蓋到目前看的這份全域變數上
+        // 多 NOTAM（只有主控才有這個概念）：指令是給「目前沒在看」的那個 NOTAM 時，
+        // 直接切過去顯示那一則，不要只是靜靜震動——否則塔台不知道飛手畫面正停在哪個 NOTAM，
+        // 送指令會像沒反應一樣；切換前會先把目前這份存回原本的 slot，不會遺失
         if(pilotMode==MODE_MASTER){
           if(doc.containsKey("notamCount")) notamCount=constrain((int)doc["notamCount"],1,3);
           int ni=doc["notamIndex"]|0;
           if(ni>=0&&ni<3&&doc.containsKey("notamCode")) notamSlots[ni].code=doc["notamCode"].as<String>();
-          if(ni!=activeNotamIdx){
-            applyCommandToSlot(notamSlots[ni],doc,false);
-            buzz(700,150);
-            break;
-          }
+          if(ni!=activeNotamIdx && ni>=0 && ni<notamCount) switchToNotamSlot(ni);
         }
         showingMessage=false;
         everReceivedCommand=true;
@@ -1000,11 +966,7 @@ void webSocketEvent(WStype_t wsType, uint8_t* payload, size_t length){
           if(doc.containsKey("notamCount")) notamCount=constrain((int)doc["notamCount"],1,3);
           int ni=doc["notamIndex"]|0;
           if(ni>=0&&ni<3&&doc.containsKey("notamCode")) notamSlots[ni].code=doc["notamCode"].as<String>();
-          if(ni!=activeNotamIdx){
-            applyCommandToSlot(notamSlots[ni],doc,true);
-            buzz(700,150);
-            break;
-          }
+          if(ni!=activeNotamIdx && ni>=0 && ni<notamCount) switchToNotamSlot(ni);
         }
         showingMessage=true;
         everReceivedCommand=true;
