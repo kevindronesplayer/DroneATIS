@@ -129,12 +129,17 @@ body{font-family:-apple-system,'Noto Sans TC',sans-serif;background:var(--bg);co
 .strip-row2 input,.strip-row2 select{background:var(--sf2);border:1px solid var(--bd);color:var(--tx);border-radius:6px;padding:5px 7px;font-size:13px;font-family:inherit;}
 .strip-row3{margin-top:6px;font-size:13px;color:var(--ac);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
 .strip-row3:empty{display:none;}
-/* 多 NOTAM（2個以上）：每個 NOTAM 各自一列，點了決定塔台發送區要對哪一個 NOTAM 動作 */
+/* 多 NOTAM（2個以上）：飛航公告/跑道/分類這條在名字下面就不顯示了，各自搬到下面每個 NOTAM 自己的列裡 */
+.pilot-strip.multi-notam .strip-row2{display:none;}
+/* 多 NOTAM（2個以上）：每個 NOTAM 各自一列，點了決定塔台發送區要對哪一個 NOTAM 動作；跑道/分類也各自獨立 */
 .strip-notam-list{margin-top:8px;display:flex;flex-direction:column;gap:6px;}
-.strip-notam-row{display:flex;align-items:center;gap:8px;background:var(--sf2);border:1px solid var(--bd);border-radius:8px;padding:7px 10px;cursor:pointer;}
+.strip-notam-row{display:flex;flex-direction:column;gap:6px;background:var(--sf2);border:1px solid var(--bd);border-radius:8px;padding:7px 10px;cursor:pointer;}
 .strip-notam-row.sel{border-color:var(--ac);background:var(--sf3);}
+.strip-notam-row-top{display:flex;align-items:center;gap:8px;}
 .strip-notam-code{font-weight:700;color:var(--am);font-size:14px;flex-shrink:0;min-width:56px;}
 .strip-notam-headline{flex:1;min-width:0;font-size:14px;color:var(--tx);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.strip-notam-rwygrp{display:flex;align-items:center;gap:10px;font-size:13px;color:var(--tx2);flex-wrap:wrap;}
+.strip-notam-rwygrp input,.strip-notam-rwygrp select{background:var(--sf3);border:1px solid var(--bd);color:var(--tx);border-radius:6px;padding:5px 7px;font-size:13px;font-family:inherit;}
 .strip-meta{display:inline-flex;align-items:center;gap:10px;}
 .strip-loc{font-weight:700;background:rgba(0,230,118,.16);color:var(--gr);border-radius:99px;padding:3px 10px;text-decoration:none;}
 .strip-loc.off{background:var(--sf3);color:var(--tx2);font-weight:400;}
@@ -675,8 +680,6 @@ function renderPilots(){
 // 右邊狀態一次只顯示一個，優先序：回應狀態（等待回應/收到降落指令/已降落…）> 降落鎖定 > 轉點/就位
 // 回應狀態要優先，降落過程才會先顯示「收到降落指令」、飛手回報降落後才換成「已降落」，而不是整段被鎖定圖示蓋掉
 function stripTagsHTML(p){
-  // 多 NOTAM 時，這個狀態改成每個 NOTAM 自己在下面那一欄顯示，名字旁邊這個就不用重複顯示了
-  if(p.notams && p.notams.length>1) return '';
   const ackInfo=ACK_MAP[p.ackStatus]||null;
   if(ackInfo) return `<span class="ack-tag ${ackInfo[0]}">${ackInfo[1]}</span>`;
   if(p.landingLocked) return `<span class="ack-tag land">🔒降落</span>`;
@@ -695,6 +698,11 @@ function stripMetaHTML(p){
   return (p.gps===true && p.lat && p.lng)
     ? `<a class="strip-loc" href="https://www.google.com/maps?q=${p.lat},${p.lng}&z=17" target="_blank" rel="noopener" onclick="event.stopPropagation()">📍 位置</a>`
     : `<span class="strip-loc off">📍 ${p.gps==='searching'?'定位中':'無位置'}</span>`;
+}
+// 名字那一列右邊：單一 NOTAM 顯示狀態標籤（跟以前一樣）；多 NOTAM 時狀態已經在下面每一列各自顯示了，
+// 這裡改放定位按鈕（定位是整台飛機的，不是每個 NOTAM 各自的，所以不會跟著搬到 NOTAM 列表裡面）
+function stripRow1RightHTML(p){
+  return (p.notams && p.notams.length>1) ? stripMetaHTML(p) : stripTagsHTML(p);
 }
 // 飛航公告放最前面，定位放最後面
 function stripRow2HTML(p){
@@ -719,16 +727,45 @@ function notamTagHTML(n){
   return '';
 }
 // 只有2個以上 NOTAM 才會顯示這一段；只有1個 NOTAM 的飛手完全不受影響，維持原本的畫面
+// 每筆 NOTAM 自己一組跑道/分類（真的各自獨立，不是同一筆資料分開顯示），所以直接讀/寫 n.rwy、n.groupId
 function stripNotamListHTML(p){
   if(!p.notams||p.notams.length<2) return '';
   return p.notams.map((n,i)=>{
     const sel=(p.clientId===selectedCid && i===selectedNotamIndex);
     return `<div class="strip-notam-row ${sel?'sel':''}" data-cid="${p.clientId}" data-idx="${i}">
-      <span class="strip-notam-code">${escapeHtml(n.code||('NOTAM'+(i+1)))}</span>
-      <span class="strip-notam-headline">${escapeHtml(notamHeadline(n))}</span>
-      ${notamTagHTML(n)}
+      <div class="strip-notam-row-top">
+        <span class="strip-notam-code">${escapeHtml(n.code||('NOTAM'+(i+1)))}</span>
+        <span class="strip-notam-headline">${escapeHtml(notamHeadline(n))}</span>
+        <span class="strip-notam-tag">${notamTagHTML(n)}</span>
+      </div>
+      <div class="strip-notam-rwygrp">
+        <span>跑道 RWY <input class="strip-notam-rwy" data-cid="${p.clientId}" data-idx="${i}" inputmode="numeric" maxlength="2" value="${escapeHtml((n.rwy||'').replace('RWY',''))}" style="width:44px;letter-spacing:2px"></span>
+        <span>分類 <select class="strip-notam-grp" data-cid="${p.clientId}" data-idx="${i}"><option value="">未分類</option>${groups.map(g=>`<option value="${g.groupId}" ${n.groupId===g.groupId?'selected':''}>${escapeHtml(g.name)}</option>`).join('')}</select></span>
+      </div>
     </div>`;
   }).join('');
+}
+// NOTAM 清單每次重建 DOM（切換選取、飛手列表更新）後都要重新綁定，三個地方共用同一份，避免漏綁
+function bindNotamListHandlers(container){
+  container.querySelectorAll('.strip-notam-row').forEach(r=>{
+    r.addEventListener('click',(e)=>{ e.stopPropagation(); selectNotam(r.dataset.cid,parseInt(r.dataset.idx,10)); });
+  });
+  container.querySelectorAll('.strip-notam-rwy').forEach(inp=>{
+    inp.addEventListener('input',()=>{
+      inp.value=inp.value.replace(/[^0-9]/g,'');
+      if(inp.value.length===2){
+        const idx=parseInt(inp.dataset.idx,10);
+        send({type:'tower_rwy',clientId:inp.dataset.cid,rwy:'RWY'+inp.value,notamIndex:idx});
+        showToast('✈ 跑道改 RWY'+inp.value);
+      }
+    });
+  });
+  container.querySelectorAll('.strip-notam-grp').forEach(sel=>{
+    sel.addEventListener('change',()=>{
+      const idx=parseInt(sel.dataset.idx,10);
+      send({type:'tower_assign_group',clientId:sel.dataset.cid,notamIndex:idx,groupId:sel.value||null});
+    });
+  });
 }
 // 目前底部發送區實際要對哪個 NOTAM 動作：只有1個時就是飛手本身（舊欄位），2個以上才是指定的那個 slot
 function effectiveSlot(p){
@@ -739,26 +776,21 @@ function renderStrips(conn){
   const el=document.getElementById('pilotsList');
   el.innerHTML=conn.map(p=>{
     const multi=p.notams && p.notams.length>1;
-    const row2=`<div class="strip-row2">${stripRow2HTML(p)}</div>`;
-    const notamList=`<div class="strip-notam-list">${stripNotamListHTML(p)}</div>`;
-    // 多 NOTAM 時，飛航公告/跑道/分類要排在每個 NOTAM 列表後面，而不是名字正下方
-    const middle=multi?(notamList+row2):(row2+notamList);
-    return `<div class="pilot-strip ${p.clientId===selectedCid?'sel':''} ${p.ackPending?'ack-pending':''}" id="strip_${p.clientId}" data-cid="${p.clientId}">
+    return `<div class="pilot-strip ${multi?'multi-notam':''} ${p.clientId===selectedCid?'sel':''} ${p.ackPending?'ack-pending':''}" id="strip_${p.clientId}" data-cid="${p.clientId}">
       <div class="strip-row1" data-cid="${p.clientId}">
         <span class="strip-name">${escapeHtml(p.name)}</span>
         <span class="strip-status">${stripStatusHTML(p)}</span>
-        <span class="strip-tags">${stripTagsHTML(p)}</span>
+        <span class="strip-tags">${stripRow1RightHTML(p)}</span>
       </div>
-      ${middle}
+      <div class="strip-row2">${stripRow2HTML(p)}</div>
+      <div class="strip-notam-list">${stripNotamListHTML(p)}</div>
       <div class="strip-row3">${stripRow3HTML(p)}</div>
     </div>`;
   }).join('');
   el.querySelectorAll('.strip-row1').forEach(r=>{
     r.addEventListener('click',()=>{ selectPilot(r.dataset.cid); });
   });
-  el.querySelectorAll('.strip-notam-row').forEach(r=>{
-    r.addEventListener('click',(e)=>{ e.stopPropagation(); selectNotam(r.dataset.cid,parseInt(r.dataset.idx,10)); });
-  });
+  bindNotamListHandlers(el);
   el.querySelectorAll('.strip-rwy').forEach(inp=>{
     inp.addEventListener('input',()=>{
       inp.value=inp.value.replace(/[^0-9]/g,'');
@@ -782,35 +814,52 @@ function selectNotam(cid,idx){
   selectedCid=cid; selectedNotamIndex=idx;
   document.querySelectorAll('.pilot-strip').forEach(s=>s.classList.toggle('sel',s.dataset.cid===cid));
   const p=pilots.find(x=>x.clientId===cid);
-  if(p){ const el=document.getElementById('strip_'+cid); if(el){ const list=el.querySelector('.strip-notam-list'); if(list){ list.innerHTML=stripNotamListHTML(p); list.querySelectorAll('.strip-notam-row').forEach(r=>r.addEventListener('click',(e)=>{ e.stopPropagation(); selectNotam(r.dataset.cid,parseInt(r.dataset.idx,10)); })); } } }
+  if(p){ const el=document.getElementById('strip_'+cid); if(el){ const list=el.querySelector('.strip-notam-list'); if(list){ list.innerHTML=stripNotamListHTML(p); bindNotamListHandlers(list); } } }
   renderComposer();
 }
 window.addEventListener('resize',()=>{ if(typeof fitComposerPad==='function') fitComposerPad(); });
 // pilots_update 時：只更新每條橫條的內容，不重建（避免跑道/分類輸入被打斷）
 function updateStrip(p){
   const el=document.getElementById('strip_'+p.clientId); if(!el) return;
+  const multi=p.notams && p.notams.length>1;
   el.classList.toggle('sel',p.clientId===selectedCid);
   el.classList.toggle('ack-pending',!!p.ackPending);
+  el.classList.toggle('multi-notam',multi);
   const st=el.querySelector('.strip-status'); if(st) st.innerHTML=stripStatusHTML(p);
-  const tg=el.querySelector('.strip-tags'); if(tg) tg.innerHTML=stripTagsHTML(p);
-  const mt=el.querySelector('.strip-meta'); if(mt) mt.innerHTML=stripMetaHTML(p);
+  const tg=el.querySelector('.strip-tags'); if(tg) tg.innerHTML=stripRow1RightHTML(p);
   const nm=el.querySelector('.strip-name'); if(nm) nm.textContent=p.name;
   const nt=el.querySelector('.strip-row2 b'); if(nt){ nt.textContent=p.notam||'未設定'; nt.style.color=p.notam?'var(--am)':'var(--tx2)'; }
-  const nl=el.querySelector('.strip-notam-list'); if(nl){ nl.innerHTML=stripNotamListHTML(p); nl.querySelectorAll('.strip-notam-row').forEach(r=>r.addEventListener('click',(e)=>{ e.stopPropagation(); selectNotam(r.dataset.cid,parseInt(r.dataset.idx,10)); })); }
-  // 多 NOTAM 數量在飛手連線中途才變化（例如新增/刪除第2個 NOTAM）：把飛航公告/跑道/分類那條移到 NOTAM 列表後面（或移回名字下方），
-  // 用搬移既有節點而不是重建，才不會把使用者正在輸入的跑道/分類打斷、也不用重新綁定事件
-  const row2El=el.querySelector('.strip-row2'); const row3El=el.querySelector('.strip-row3');
-  if(row2El && nl && row3El){
-    const multi=p.notams && p.notams.length>1;
-    if(multi){ el.insertBefore(nl,row2El); el.insertBefore(row2El,row3El); }
-    else { el.insertBefore(row2El,nl); }
-  }
-  const rw=el.querySelector('.strip-rwy'); if(rw && document.activeElement!==rw) rw.value=(p.rwy||'').replace('RWY','');
-  const gp=el.querySelector('.strip-grp');
+  const rw=el.querySelector('.strip-row2 .strip-rwy'); if(rw && document.activeElement!==rw) rw.value=(p.rwy||'').replace('RWY','');
+  const gp=el.querySelector('.strip-row2 .strip-grp');
   if(gp && document.activeElement!==gp){
     const want=p.groupId||'';
     if(gp.value!==want || gp.options.length!==groups.length+1){
       gp.innerHTML=`<option value="">未分類</option>${groups.map(g=>`<option value="${g.groupId}" ${p.groupId===g.groupId?'selected':''}>${escapeHtml(g.name)}</option>`).join('')}`;
+    }
+  }
+  const nl=el.querySelector('.strip-notam-list');
+  if(nl){
+    const existingRows=nl.querySelectorAll('.strip-notam-row');
+    if(!multi || existingRows.length!==p.notams.length){
+      // NOTAM 筆數變了（新增/刪除）才整段重建；筆數沒變就只更新內容，不然使用者正在輸入的跑道/分類會被打斷
+      nl.innerHTML=stripNotamListHTML(p);
+      bindNotamListHandlers(nl);
+    } else {
+      p.notams.forEach((n,i)=>{
+        const row=existingRows[i];
+        row.classList.toggle('sel',p.clientId===selectedCid && i===selectedNotamIndex);
+        const codeEl=row.querySelector('.strip-notam-code'); if(codeEl) codeEl.textContent=n.code||('NOTAM'+(i+1));
+        const hlEl=row.querySelector('.strip-notam-headline'); if(hlEl) hlEl.textContent=notamHeadline(n);
+        const tagEl=row.querySelector('.strip-notam-tag'); if(tagEl) tagEl.innerHTML=notamTagHTML(n);
+        const rwyEl=row.querySelector('.strip-notam-rwy'); if(rwyEl && document.activeElement!==rwyEl) rwyEl.value=(n.rwy||'').replace('RWY','');
+        const grpEl=row.querySelector('.strip-notam-grp');
+        if(grpEl && document.activeElement!==grpEl){
+          const want=n.groupId||'';
+          if(grpEl.value!==want || grpEl.options.length!==groups.length+1){
+            grpEl.innerHTML=`<option value="">未分類</option>${groups.map(g=>`<option value="${g.groupId}" ${n.groupId===g.groupId?'selected':''}>${escapeHtml(g.name)}</option>`).join('')}`;
+          }
+        }
+      });
     }
   }
   const r3=el.querySelector('.strip-row3'); if(r3) r3.textContent=stripRow3HTML(p);
@@ -1016,6 +1065,8 @@ document.getElementById('btnRenameCancel').addEventListener('click',()=>{
 });
 
 // ── 分類面板 ────────────────────────────────────────────────────
+// 分類成員現在是「某飛手的某一筆 NOTAM」（memberIds 是 {clientId,notamIndex} 陣列），
+// 同一個飛手的不同 NOTAM 可以分屬不同分類；只有1個 NOTAM 的飛手固定用第0筆，畫面上跟以前一樣只顯示名字
 function renderGroups(){
   const c=document.getElementById('groupsContainer');
   if(!groups.length){
@@ -1023,22 +1074,35 @@ function renderGroups(){
     return;
   }
   c.innerHTML=groups.map(g=>{
-    const members=pilots.filter(p=>g.memberIds.includes(p.clientId));
-    // 每個飛手的分組下拉
-    const allPilotOpts=pilots.filter(p=>p.towerConnected).map(p=>
-      `<option value="${p.clientId}" ${g.memberIds.includes(p.clientId)?'selected':''}>${p.name}</option>`
-    ).join('');
+    const memberChips=(g.memberIds||[]).map(m=>{
+      const p=pilots.find(x=>x.clientId===m.clientId); if(!p) return null;
+      const idx=m.notamIndex||0;
+      const multi=p.notams && p.notams.length>1;
+      const label=multi?`${p.name}[${(p.notams[idx]&&p.notams[idx].code)||('NOTAM'+(idx+1))}]`:p.name;
+      return label;
+    }).filter(Boolean);
+    // 加入下拉：多 NOTAM 的飛手要拆成每筆 NOTAM 各自一個選項，才能指定加到哪一筆
+    const opts=[];
+    pilots.filter(p=>p.towerConnected).forEach(p=>{
+      if(p.notams && p.notams.length>1){
+        p.notams.forEach((n,i)=>{
+          opts.push(`<option value="${p.clientId}|${i}">${escapeHtml(p.name)}[${escapeHtml(n.code||('NOTAM'+(i+1)))}]</option>`);
+        });
+      } else {
+        opts.push(`<option value="${p.clientId}|0">${escapeHtml(p.name)}</option>`);
+      }
+    });
     return `<div class="group-card">
       <div class="group-hdr">
-        <span class="grp-name-display" data-gid="${g.groupId}" onclick="openRenamePanel('${g.groupId}','${g.name}')">${g.name} ✏️</span>
+        <span class="grp-name-display" data-gid="${g.groupId}" onclick="openRenamePanel('${g.groupId}','${escapeHtml(g.name)}')">${escapeHtml(g.name)} ✏️</span>
         <button class="btn-del" data-gid="${g.groupId}">✕</button>
       </div>
       <div class="grp-members">
-        ${members.length?members.map(p=>`<span class="grp-chip">${p.name}</span>`).join(''):'<span style="font-size:20px;color:var(--tx2)">尚無成員</span>'}
+        ${memberChips.length?memberChips.map(label=>`<span class="grp-chip">${escapeHtml(label)}</span>`).join(''):'<span style="font-size:20px;color:var(--tx2)">尚無成員</span>'}
         <div style="margin-top:8px">
           <select class="cmd-select" data-gid="${g.groupId}" style="width:100%">
             <option value="">＋ 加入飛手...</option>
-            ${allPilotOpts}
+            ${opts.join('')}
           </select>
         </div>
       </div>
@@ -1052,7 +1116,8 @@ function renderGroups(){
   c.querySelectorAll('select[data-gid]').forEach(sel=>{
     sel.addEventListener('change',()=>{
       if(!sel.value) return;
-      send({type:'tower_assign_group',clientId:sel.value,groupId:sel.dataset.gid});
+      const [clientId,notamIndexStr]=sel.value.split('|');
+      send({type:'tower_assign_group',clientId,notamIndex:parseInt(notamIndexStr,10)||0,groupId:sel.dataset.gid});
       sel.value='';
     });
   });

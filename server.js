@@ -249,7 +249,8 @@ function ensureNotams(pilot){
       hasCommand:!!pilot.hasCommand, landingTime:pilot.landingTime||null, landingReason:'',
       landingLocked:!!pilot.landingLocked, landingReported:!!pilot.landingReported,
       ackPending:!!pilot.ackPending, ackStatus:pilot.ackStatus||'', ackDeadline:pilot.ackDeadline||null,
-      rwy:pilot.rwy||'', lastMessage:pilot.lastMessage||'', lastMessageTime:pilot.lastMessageTime||''
+      rwy:pilot.rwy||'', lastMessage:pilot.lastMessage||'', lastMessageTime:pilot.lastMessageTime||'',
+      groupId:pilot.groupId||null
     }];
   }
   return pilot.notams;
@@ -262,6 +263,19 @@ function syncLegacyFromSlot0(pilot){
   pilot.landingTime=s.landingTime; pilot.landingLocked=s.landingLocked; pilot.landingReported=s.landingReported;
   pilot.ackPending=s.ackPending; pilot.ackStatus=s.ackStatus; pilot.ackDeadline=s.ackDeadline;
   pilot.rwy=s.rwy; pilot.lastMessage=s.lastMessage; pilot.lastMessageTime=s.lastMessageTime;
+  pilot.groupId=s.groupId;
+}
+// 分類群組成員現在是「某一筆 NOTAM」，不是整個飛手；刪掉/搬移 NOTAM slot 時要一併處理
+function removeGroupMembership(clientId,notamIndex){
+  groups.forEach(g=>{ g.memberIds=g.memberIds.filter(m=>!(m.clientId===clientId&&m.notamIndex===notamIndex)); });
+}
+// 整個飛手的 NOTAM 清單被砍掉重來（結束作業後重新開一輪）時，舊的分類成員資格全部失效，
+// 不清掉的話會留著指到已經不存在的 notamIndex，之後被 notamSlot() 自動退回 slot 0 誤套用到不相干的分類
+function removeAllGroupMembership(clientId){
+  groups.forEach(g=>{ g.memberIds=g.memberIds.filter(m=>m.clientId!==clientId); });
+}
+function shiftGroupMembershipDown(clientId,removedIndex){
+  groups.forEach(g=>{ g.memberIds.forEach(m=>{ if(m.clientId===clientId&&m.notamIndex>removedIndex) m.notamIndex--; }); });
 }
 function notamLabel(pilot,idx){
   const ns=ensureNotams(pilot);
@@ -280,7 +294,7 @@ function applyStatus(pilot,status,landingTime,notamIndex){
   slot.lastMessageTime=nowTimeStr(); // 塔台每次來訊（指令或訊息）的時間，飛手端顯示用，跟 line 一樣
   slot.landingReported=false; // 新指令 → 清除「已回報降落完成」旗標
   if(landingTime) slot.landingTime=landingTime;
-  const gn=groupName(pilot.groupId);
+  const gn=groupName(slot.groupId);
   const {tName,tType}=getActiveTower(pilot);
   const pendingKey=pilot.clientId+':'+idx;
   if(status==='可以起飛'){
@@ -314,13 +328,14 @@ function canSendToPilot(pilot,newStatus,notamIndex){
 
 function updateGroupStatus(groupId,status,landingTime,immediate){
   const g=groups.get(groupId); if(!g) return;
-  g.memberIds.forEach(cid=>{
+  g.memberIds.forEach(m=>{
+    const cid=m.clientId; const idx=m.notamIndex||0;
     const p=pilots.get(cid); if(!p) return;
-    if(!canSendToPilot(p,status,0)) return; // 跳過正在降落鎖定中的飛手，不影響同分類其他人；分類指令固定對第1個 NOTAM
-    applyStatus(p,status,landingTime,0);
-    const slot=notamSlot(p,0);
-    toPilot(cid,{type:'command',status,landingTime:landingTime||null,immediate:!!immediate,groupName:groupName(groupId),time:slot.lastMessageTime,notamIndex:0,notamCode:slot.code||'',notamCount:p.notams.length});
-    toFollowers(cid,{type:'follower_sync',status,landingTime:landingTime||null,immediate:!!immediate,groupName:groupName(groupId),time:slot.lastMessageTime,notamIndex:0,notamCode:slot.code||'',notamCount:p.notams.length});
+    if(!canSendToPilot(p,status,idx)) return; // 跳過正在降落鎖定中的那筆 NOTAM，不影響同分類其他成員
+    applyStatus(p,status,landingTime,idx);
+    const slot=notamSlot(p,idx);
+    toPilot(cid,{type:'command',status,landingTime:landingTime||null,immediate:!!immediate,groupName:groupName(groupId),time:slot.lastMessageTime,notamIndex:idx,notamCode:slot.code||'',notamCount:p.notams.length});
+    toFollowers(cid,{type:'follower_sync',status,landingTime:landingTime||null,immediate:!!immediate,groupName:groupName(groupId),time:slot.lastMessageTime,notamIndex:idx,notamCode:slot.code||'',notamCount:p.notams.length});
     markGatherPending(cid);
   });
   broadcastPilots();
@@ -387,7 +402,8 @@ wss.on('connection',ws=>{
         const status=isOther?msg.status:msg.status;  // 直接使用，不加前綴
         const notamIndex=msg.notamIndex||0; // 有2個以上 NOTAM 時，塔台要指定這次指令是對哪一個
         const pilot=pilots.get(clientId); if(!pilot) return;
-        if(pilot.groupId) updateGroupStatus(pilot.groupId,status,landingTime,immediate);
+        const cmdSlot=notamSlot(pilot,notamIndex);
+        if(cmdSlot.groupId) updateGroupStatus(cmdSlot.groupId,status,landingTime,immediate);
         else{
           if(!canSendToPilot(pilot,status,notamIndex)){
             ws.send(JSON.stringify({type:'error',message:dispName(pilot)+notamLabel(pilot,notamIndex)+' 正在降落中，尚未回報，無法發送其他指令'}));
@@ -449,9 +465,9 @@ wss.on('connection',ws=>{
       case 'tower_rename_group':{
         const g=groups.get(msg.groupId); if(!g) break;
         g.name=msg.name;
-        g.memberIds.forEach(cid=>{
-          toPilot(cid,{type:'group_update',groupName:msg.name});
-          toFollowers(cid,{type:'group_update',groupName:msg.name});
+        g.memberIds.forEach(m=>{
+          toPilot(m.clientId,{type:'group_update',groupName:msg.name});
+          toFollowers(m.clientId,{type:'group_update',groupName:msg.name});
         });
         broadcastGroups();
         break;
@@ -459,7 +475,11 @@ wss.on('connection',ws=>{
 
       case 'tower_delete_group':{
         const g=groups.get(msg.groupId); if(!g) break;
-        g.memberIds.forEach(cid=>{const p=pilots.get(cid);if(p){p.groupId=null;toPilot(cid,{type:'group_update',groupName:''});}});
+        g.memberIds.forEach(m=>{
+          const p=pilots.get(m.clientId); if(!p) return;
+          const s=notamSlot(p,m.notamIndex||0); s.groupId=null; syncLegacyFromSlot0(p);
+          toPilot(m.clientId,{type:'group_update',groupName:''});
+        });
         groups.delete(msg.groupId);
         broadcastGroups();
         broadcastPilots();
@@ -485,11 +505,14 @@ wss.on('connection',ws=>{
 
       case 'tower_assign_group':{
         const {clientId,groupId}=msg;
+        const notamIndex=msg.notamIndex||0;
         const pilot=pilots.get(clientId); if(!pilot) return;
-        if(pilot.groupId){const old=groups.get(pilot.groupId);if(old)old.memberIds=old.memberIds.filter(x=>x!==clientId);}
-        pilot.groupId=groupId||null;
-        if(groupId){const grp=groups.get(groupId);if(grp&&!grp.memberIds.includes(clientId))grp.memberIds.push(clientId);}
-        toPilot(clientId,{type:'group_update',groupName:groupName(groupId)});
+        const slot=notamSlot(pilot,notamIndex);
+        if(slot.groupId){const old=groups.get(slot.groupId);if(old)old.memberIds=old.memberIds.filter(m=>!(m.clientId===clientId&&m.notamIndex===notamIndex));}
+        slot.groupId=groupId||null;
+        syncLegacyFromSlot0(pilot);
+        if(groupId){const grp=groups.get(groupId);if(grp&&!grp.memberIds.some(m=>m.clientId===clientId&&m.notamIndex===notamIndex))grp.memberIds.push({clientId,notamIndex});}
+        toPilot(clientId,{type:'group_update',groupName:groupName(groupId),notamIndex,notamCode:slot.code||'',notamCount:pilot.notams.length});
         toFollowers(clientId,{type:'group_update',groupName:groupName(groupId)});
         broadcastPilots();
         broadcastGroups();
@@ -602,6 +625,7 @@ wss.on('connection',ws=>{
             ep.pendingReset=false;
             ep.notam=''; ep.status='開機預備'; ep.ackStatus=''; ep.hasCommand=false;
             ep.towerConnected=false;
+            removeAllGroupMembership(clientId); ep.groupId=null; // NOTAM 清單重來，舊的分類成員資格（可能還分好幾筆各自不同分類）一起失效
             ep.notams=undefined; ensureNotams(ep); // 重新開一輪，NOTAM 清單也砍回只剩1個空白的
           }
           const wasTowerConnected=ep.towerConnected&&lastSeenSameDay;
@@ -613,6 +637,7 @@ wss.on('connection',ws=>{
 
           ws.send(JSON.stringify({type:'registered',clientId,roomCode,reconnect:true}));
           broadcastPilots();
+          broadcastGroups();
 
           // 如果之前已有塔台配對，自動重新發送 tower_connected，不需要塔台重新輸入序號
           if(wasTowerConnected){
@@ -697,17 +722,20 @@ wss.on('connection',ws=>{
           if(ns.length>=3) return;
           ns.push({code, status:'開機預備', lastCommType:'status', hasCommand:false, landingTime:null, landingReason:'',
             landingLocked:false, landingReported:false, ackPending:false, ackStatus:'', ackDeadline:null,
-            rwy:'', lastMessage:'', lastMessageTime:''});
+            rwy:'', lastMessage:'', lastMessageTime:'', groupId:null});
         } else if(action==='edit'){
           const s=ns[msg.index]; if(!s) return;
           s.code=code;
         } else if(action==='remove'){
           if(ns.length<=1) return; // 至少保留1筆
+          removeGroupMembership(pilot.clientId,msg.index);
+          shiftGroupMembershipDown(pilot.clientId,msg.index);
           ns.splice(msg.index,1);
           pendingLandingEntry.delete(pilot.clientId+':'+msg.index);
         } else return;
         syncLegacyFromSlot0(pilot);
         broadcastPilots();
+        broadcastGroups();
         toPilot(conn.clientId,{type:'notams_update',notams:ns});
         toOwnerTower(conn.clientId,{type:'pilot_notam_update',pilotName:dispName(pilot),clientId:conn.clientId,notam:ns[0].code});
         toFollowers(conn.clientId,{type:'notam_update',notam:ns[0].code});
@@ -839,7 +867,7 @@ wss.on('connection',ws=>{
         slot.landingLocked=false;
         slot.landingReported=true;
         syncLegacyFromSlot0(pilot);
-        const gn=groupName(pilot.groupId);
+        const gn=groupName(slot.groupId);
         const {tName,tType}=getActiveTower(pilot);
         const ldTime=nowTimeStr().replace(':','');
         flightLog.push({date:todayStr(),groupName:gn,pilotName:dispName(pilot),type:'landing',time:ldTime,rwy:slot.rwy||'',notam:slot.code||'',towerName:tName,towerType:tType});
@@ -855,15 +883,17 @@ wss.on('connection',ws=>{
         const pilot=pilots.get(msg.clientId);
         if(!pilot) return;
         const idx=msg.notamIndex||0;
-        // 同分類的飛手要一起同步跑道方向，不是只有被點的那個（分類指令固定對第1個 NOTAM）
-        const targets = pilot.groupId ? (groups.get(pilot.groupId)?.memberIds||[msg.clientId]) : [msg.clientId];
-        targets.forEach(cid=>{
-          const p=pilots.get(cid); if(!p) return;
-          const s=notamSlot(p,pilot.groupId?0:idx);
+        const rwySlot=notamSlot(pilot,idx);
+        // 同分類的 NOTAM 要一起同步跑道方向，不是只有被改的那一筆；每個成員各自用自己的 notamIndex
+        const targets = rwySlot.groupId ? (groups.get(rwySlot.groupId)?.memberIds||[{clientId:msg.clientId,notamIndex:idx}]) : [{clientId:msg.clientId,notamIndex:idx}];
+        targets.forEach(m=>{
+          const p=pilots.get(m.clientId); if(!p) return;
+          const tIdx=m.notamIndex||0;
+          const s=notamSlot(p,tIdx);
           s.rwy=msg.rwy;
           syncLegacyFromSlot0(p);
-          toPilot(cid,{type:'rwy_update',rwy:msg.rwy,notamIndex:pilot.groupId?0:idx});
-          toFollowers(cid,{type:'rwy_update',rwy:msg.rwy});
+          toPilot(m.clientId,{type:'rwy_update',rwy:msg.rwy,notamIndex:tIdx});
+          toFollowers(m.clientId,{type:'rwy_update',rwy:msg.rwy});
         });
         broadcastPilots();
         break;
