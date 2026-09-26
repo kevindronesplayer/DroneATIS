@@ -763,6 +763,9 @@ wss.on('connection',ws=>{
         if(pilot){
           pilot.codeGen=(pilot.codeGen||0)+1; // 結束作業後序號要換掉，下次 pilot_register 才不會算出同一組舊序號
           pilot.pendingReset=true; // 下次用新序號重新註冊時，飛航公告/狀態要清空，不要延續這輪舊資料
+          // 結束作業是整個飛手一次結束，不是單一 NOTAM 的事——每一筆 NOTAM 都要標成「結束作業」，
+          // 不然多 NOTAM 時塔台介面只有舊的頂層欄位被改到，畫面上每筆 NOTAM 還是停在結束前的狀態
+          ensureNotams(pilot).forEach(s=>{ s.status='結束作業'; s.ackStatus='session_ended'; s.hasCommand=true; });
           pilot.status='結束作業'; // 讓塔台飛手列表的狀態欄也顯示，不要停在結束前最後一個狀態
           pilot.ackStatus='session_ended'; // 讓右側標籤（跟已起飛/已降落同一區）也顯示「結束作業」
           pilot.hasCommand=true;
