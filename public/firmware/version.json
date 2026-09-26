@@ -1,5 +1,5 @@
 {
-  "version": 37,
-  "notes": "多NOTAM清單畫面：跑道和分類改成上下排列（不是同一行），每個NOTAM的框加高，字不會擠在一起重疊",
+  "version": 38,
+  "notes": "多NOTAM清單畫面改成2x2排版：左上NOTAM代碼、左下塔台訊息/狀態、右上跑道、右下分類，NOTAM跟跑道同一行高，塔台訊息跟分類同一行高，不會再疊字",
   "url": "https://droneatis-production.up.railway.app/firmware/esp32_pilot.bin"
 }

@@ -23,7 +23,7 @@
 #define GPS_RX_PIN    32   // Core2 PORT.A（外接I2C腳位，這裡改當UART用；訊號1=RXD）
 #define GPS_TX_PIN    33   // Core2 PORT.A（訊號2=TXD）
 #define GPS_BAUD      115200
-#define FW_VERSION    37
+#define FW_VERSION    38
 #define UPDATE_CHECK_URL "https://droneatis-production.up.railway.app/firmware/version.json"
 
 // ── NVS 儲存 ─────────────────────────────────────────────────────────────────
@@ -1133,26 +1133,22 @@ void drawNotamList(){
   fXs(); M5.Display.setTextDatum(middle_left);
   M5.Display.setTextColor(ok?CLR_GREEN:CLR_RED);
   M5.Display.drawString(ok?("● "+towerType+" "+towerName):"● 無連線",8,42);
-  int y=54, rh=54, gap=6;
+  int y=54, rh=44, gap=6;
   for(int i=0;i<notamCount;i++){
     NotamRowView v=notamRowView(i);
     uint16_t bd=CLR_GRAY;
-    String tag="";
-    if(v.ackPending){ bd=CLR_AMBER; tag="待回應"; }
-    else if(v.landState==LAND_COUNTDOWN){ bd=CLR_AMBER; tag="降落倒數"; }
-    else if(v.landState==LAND_WAIT_ACK){ bd=CLR_AMBER; tag="收到降落"; }
+    if(v.ackPending||v.landState==LAND_COUNTDOWN||v.landState==LAND_WAIT_ACK) bd=CLR_AMBER;
     M5.Display.fillRoundRect(8,y,270,rh,8,CLR_SURFACE); M5.Display.drawRoundRect(8,y,270,rh,8,bd);
+    // 2x2排版：左上 NOTAM代碼、左下 塔台訊息／狀態、右上 跑道、右下 分類；
+    // NOTAM跟跑道同一行高，塔台訊息跟分類同一行高，字才不會疊在一起
     fSm(); M5.Display.setTextDatum(middle_left); M5.Display.setTextColor(CLR_AMBER);
     M5.Display.drawString(v.code.length()?v.code:("NOTAM"+String(i+1)),16,y+14);
     fXs(); M5.Display.setTextColor(CLR_WHITE);
     String statusText=v.showingMessage?v.lastMessage:v.statusText;
     M5.Display.drawString(statusText,16,y+30);
-    // 塔台如果有幫這筆 NOTAM 設跑道/分類，放右邊、上下排列（不要跟代碼/狀態同一行擠成一長串）：
-    // 回應標籤在右上，跑道再下面一行，分類最下面一行；框加高一點才擺得下這3行，字不會疊在一起
     M5.Display.setTextDatum(middle_right);
-    if(tag.length()){ M5.Display.setTextColor(bd); M5.Display.drawString(tag,272,y+12); }
-    if(v.rwy.length()){ M5.Display.setTextColor(CLR_WHITE); M5.Display.drawString(v.rwy,272,y+28); }
-    if(v.groupName.length()){ M5.Display.setTextColor(CLR_ACCENT); M5.Display.drawString("["+v.groupName+"]",272,y+44); }
+    if(v.rwy.length()){ fSm(); M5.Display.setTextColor(CLR_WHITE); M5.Display.drawString(v.rwy,272,y+14); }
+    if(v.groupName.length()){ fXs(); M5.Display.setTextColor(CLR_ACCENT); M5.Display.drawString("["+v.groupName+"]",272,y+30); }
     M5.Display.fillRoundRect(284,y,28,rh,6,CLR_SURFACE); M5.Display.drawRoundRect(284,y,28,rh,6,CLR_RED);
     fSm(); M5.Display.setTextDatum(middle_center); M5.Display.setTextColor(CLR_RED); M5.Display.drawString("X",298,y+rh/2);
     y+=rh+gap;
@@ -1185,7 +1181,7 @@ void drawNotamDeleteConfirm(int idx){
 }
 
 void handleNotamListTouch(int tx,int ty){
-  int y=54, rh=54, gap=6;
+  int y=54, rh=44, gap=6;
   for(int i=0;i<notamCount;i++){
     if(ty>=y&&ty<=y+rh){
       if(tx>=284&&tx<=312){ if(notamCount>1) drawNotamDeleteConfirm(i); return; }
