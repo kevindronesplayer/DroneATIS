@@ -629,6 +629,12 @@ function handle(msg){
     notifyTower('飛手回報', `${msg.pilotName} 更新飛航公告 ${msg.notam}`);
     renderPilots();
   }
+  else if(msg.type==='pilot_notam_added'){
+    notifyTower('飛手回報', `${msg.pilotName} 新增 NOTAM [${msg.notam}]`);
+  }
+  else if(msg.type==='pilot_notam_removed'){
+    notifyTower('飛手回報', `${msg.pilotName} [${msg.notam}] 結束作業`);
+  }
   else if(msg.type==='pilot_turnpoint'){
     notifyTower('飛手回報', `${msg.pilotName} 回報轉點 約${msg.minutes}分`);
   }

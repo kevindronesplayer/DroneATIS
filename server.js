@@ -722,6 +722,7 @@ wss.on('connection',ws=>{
         const ns=ensureNotams(pilot);
         const action=msg.action;
         const code=(msg.code||'').toString().slice(0,20);
+        let removedCode=''; // 刪除當下那一筆的代碼，splice 之後就拿不到了，要先存起來給塔台通知用
         if(action==='add'){
           if(ns.length>=3) return;
           ns.push({code, status:'開機預備', lastCommType:'status', hasCommand:false, landingTime:null, landingReason:'',
@@ -732,6 +733,7 @@ wss.on('connection',ws=>{
           s.code=code;
         } else if(action==='remove'){
           if(ns.length<=1) return; // 至少保留1筆
+          removedCode=(ns[msg.index]&&ns[msg.index].code)||('NOTAM'+(msg.index+1));
           removeGroupMembership(pilot.clientId,msg.index);
           shiftGroupMembershipDown(pilot.clientId,msg.index);
           ns.splice(msg.index,1);
@@ -743,6 +745,16 @@ wss.on('connection',ws=>{
         toPilot(conn.clientId,{type:'notams_update',notams:notamsForPilotWire(pilot)});
         toOwnerTower(conn.clientId,{type:'pilot_notam_update',pilotName:dispName(pilot),clientId:conn.clientId,notam:ns[0].code});
         toFollowers(conn.clientId,{type:'notam_update',notam:ns[0].code});
+        // 多 NOTAM 新增/刪除都要讓塔台知道——之前只有靜靜改資料，塔台完全看不出來飛手多開/關了一筆作業
+        if(action==='add'){
+          pushComm(dispName(pilot),'pilot','新增 NOTAM ['+code+']');
+          toOwnerTower(conn.clientId,{type:'pilot_notam_added',pilotName:dispName(pilot),clientId:conn.clientId,notam:code});
+          pushToOwnerTower(conn.clientId,{title:'飛手回報',body:dispName(pilot)+' 新增 NOTAM ['+code+']'});
+        } else if(action==='remove'){
+          pushComm(dispName(pilot),'pilot','['+removedCode+'] 結束作業');
+          toOwnerTower(conn.clientId,{type:'pilot_notam_removed',pilotName:dispName(pilot),clientId:conn.clientId,notam:removedCode});
+          pushToOwnerTower(conn.clientId,{title:'飛手回報',body:dispName(pilot)+' ['+removedCode+'] 結束作業'});
+        }
         break;
       }
 
