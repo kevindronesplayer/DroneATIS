@@ -1,5 +1,5 @@
 {
-  "version": 34,
-  "notes": "多NOTAM時，塔台發指令/訊息給M5Stack目前沒在顯示的那個NOTAM，現在會直接切過去顯示（之前只會震動、畫面不會跳），原本正在看的NOTAM狀態會先存好不會遺失",
+  "version": 35,
+  "notes": "飛航公告設定/新增NOTAM的觸控往下移一點，不要跟塔台連線狀態貼太近；多NOTAM清單畫面顯示塔台有設定的跑道/分類；顯示序號畫面新增關機按鈕",
   "url": "https://droneatis-production.up.railway.app/firmware/esp32_pilot.bin"
 }

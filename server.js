@@ -283,6 +283,10 @@ function notamLabel(pilot,idx){
   const code=ns[idx]&&ns[idx].code;
   return code?('['+code+'] '):('[NOTAM'+(idx+1)+'] ');
 }
+// 送給飛手（M5Stack）看的 NOTAM 清單：飛手端沒有分類 ID 對名稱的對照表，這裡先把名字解析好帶過去
+function notamsForPilotWire(pilot){
+  return ensureNotams(pilot).map(s=>({...s,groupName:groupName(s.groupId)}));
+}
 
 function applyStatus(pilot,status,landingTime,notamIndex){
   const idx=notamIndex||0;
@@ -393,7 +397,7 @@ wss.on('connection',ws=>{
         const tName=found.ownerTowerName; const tType=found.ownerTowerType;
         broadcastPilots();
         ensureNotams(found);
-        toPilot(found.clientId,{type:'tower_connected',groupName:groupName(found.groupId),towerName:tName,towerType:tType,notam:found.notam||'',rwy:found.rwy||'',notams:found.notams});
+        toPilot(found.clientId,{type:'tower_connected',groupName:groupName(found.groupId),towerName:tName,towerType:tType,notam:found.notam||'',rwy:found.rwy||'',notams:notamsForPilotWire(found)});
         break;
       }
 
@@ -642,7 +646,7 @@ wss.on('connection',ws=>{
           // 如果之前已有塔台配對，自動重新發送 tower_connected，不需要塔台重新輸入序號
           if(wasTowerConnected){
             const {tName,tType}=getActiveTower(ep);
-            toPilot(clientId,{type:'tower_connected',groupName:groupName(ep.groupId),towerName:tName,towerType:tType,reconnect:true,notam:ep.notam||'',rwy:ep.rwy||'',notams:ep.notams});
+            toPilot(clientId,{type:'tower_connected',groupName:groupName(ep.groupId),towerName:tName,towerType:tType,reconnect:true,notam:ep.notam||'',rwy:ep.rwy||'',notams:notamsForPilotWire(ep)});
           }
         } else {
           // 全新飛手
@@ -736,7 +740,7 @@ wss.on('connection',ws=>{
         syncLegacyFromSlot0(pilot);
         broadcastPilots();
         broadcastGroups();
-        toPilot(conn.clientId,{type:'notams_update',notams:ns});
+        toPilot(conn.clientId,{type:'notams_update',notams:notamsForPilotWire(pilot)});
         toOwnerTower(conn.clientId,{type:'pilot_notam_update',pilotName:dispName(pilot),clientId:conn.clientId,notam:ns[0].code});
         toFollowers(conn.clientId,{type:'notam_update',notam:ns[0].code});
         break;
