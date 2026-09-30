@@ -523,6 +523,22 @@ wss.on('connection',ws=>{
         break;
       }
 
+      // 飛手手機版隱藏功能：查看目前誰在線上（入口在前端用特定名字擋住，這裡不額外驗證身分，
+      // 只回傳連線概況，不含塔台序號等敏感資料）
+      case 'list_online':{
+        const pilotsOnline=Array.from(pilots.values())
+          .filter(p=>p.wifi!==false)
+          .map(p=>({name:dispName(p),wifi:true,towerConnected:!!p.towerConnected}));
+        let towerCount=0, followerCount=0, monitorCount=0;
+        connections.forEach(c=>{
+          if(c.role==='tower') towerCount++;
+          else if(c.role==='follower') followerCount++;
+          else if(c.role==='monitor') monitorCount++;
+        });
+        ws.send(JSON.stringify({type:'online_list', pilots:pilotsOnline, towerCount, followerCount, monitorCount}));
+        break;
+      }
+
       case 'follower_register':{
         // 跟隨者：找到主控的 clientId 後訂閱
         const {name, masterCode} = msg;

@@ -146,7 +146,23 @@ input[type=text]:focus,input[type=number]:focus{border-color:var(--ac);}
     <div class="t" style="color:var(--gr)">塔台放行數據</div>
     <div class="d">查詢無人機塔台歷史放行數據<br>（外部工具，不需連線）</div>
   </div>
+  <div class="mode-btn" id="btnModeOnlineList" style="border-color:var(--tx2);display:none;">
+    <div class="t" style="color:var(--tx)">目前在線名單</div>
+    <div class="d">查看現在有誰連線中（僅限本人）</div>
+  </div>
   <button class="btn outline" id="btnModeBack">‹ 更改名字</button>
+</div>
+
+<!-- 目前在線名單：只有特定名字登入才看得到這個選項 -->
+<div class="page" id="scrOnlineList">
+  <div class="topbar">
+    <div class="iconbtn" id="btnOnlineListBack">‹ 返回</div>
+    <div class="name" style="text-align:center">目前在線名單</div>
+    <div class="iconbtn" id="btnOnlineListRefresh">重新整理</div>
+  </div>
+  <div class="body" id="onlineListBody">
+    <div class="sub" style="text-align:center;padding:20px 0">載入中…</div>
+  </div>
 </div>
 
 <!-- 塔台放行數據：外部工具，純瀏覽，不走 WebSocket 連線 -->
@@ -663,9 +679,42 @@ if('serviceWorker' in navigator){
 
 // ── 事件綁定：姓名/模式選擇 ──────────────────────────────────────────
 if(pilotName){ $('nameInput').value=pilotName; }
+// 「目前在線名單」只有特定名字登入才看得到這個選項，不是帳號密碼，只是隱藏入口
+const ONLINE_LIST_NAME='鄭泰然';
 function showModeSelect(){
   $('modeSelName').textContent=pilotName;
+  $('btnModeOnlineList').style.display=(pilotName===ONLINE_LIST_NAME)?'block':'none';
   showPage('scrModeSelect');
+}
+// 這個畫面在還沒選模式、還沒連線的階段就要能用，跟主要的 follower ws 連線邏輯是分開的獨立小連線
+let onlineListWs=null;
+function requestOnlineList(){
+  $('onlineListBody').innerHTML='<div class="sub" style="text-align:center;padding:20px 0">載入中…</div>';
+  if(onlineListWs && onlineListWs.readyState===1){ onlineListWs.send(JSON.stringify({type:'list_online'})); return; }
+  const wsProtocol=location.protocol==='https:'?'wss:':'ws:';
+  onlineListWs=new WebSocket(`${wsProtocol}//${location.host}`);
+  onlineListWs.onopen=()=>{ onlineListWs.send(JSON.stringify({type:'list_online'})); };
+  onlineListWs.onmessage=e=>{
+    let msg; try{msg=JSON.parse(e.data);}catch(err){return;}
+    if(msg.type==='online_list') renderOnlineList(msg);
+  };
+  onlineListWs.onerror=()=>{ $('onlineListBody').innerHTML='<div class="sub" style="text-align:center;padding:20px 0">連線失敗</div>'; };
+}
+function closeOnlineListWs(){ try{ onlineListWs&&onlineListWs.close(); }catch(e){} onlineListWs=null; }
+function renderOnlineList(msg){
+  const rows=(msg.pilots||[]).map(p=>{
+    const tag=p.towerConnected?'<span style="color:var(--gr)">● 已連塔台</span>':'<span style="color:var(--am)">● 未連塔台</span>';
+    return `<div class="status-card" style="padding:12px 16px;margin-bottom:8px;">
+      <div style="display:flex;justify-content:space-between;align-items:center;">
+        <span style="font-size:18px;font-weight:700">${escapeHtml(p.name)}</span>
+        <span style="font-size:14px">${tag}</span>
+      </div>
+    </div>`;
+  }).join('') || '<div class="sub" style="text-align:center;padding:20px 0">目前沒有飛手連線</div>';
+  $('onlineListBody').innerHTML=`
+    <div class="sub" style="margin-bottom:12px">
+      塔台連線 ${msg.towerCount??0}　跟隨中 ${msg.followerCount??0}　主控輔助 ${msg.monitorCount??0}
+    </div>${rows}`;
 }
 function gotoFollowerCode(){
   followerBuf=''; renderFollowerBuf();
@@ -692,6 +741,9 @@ function openAtcData(){
   showPage('scrAtcData');
 }
 $('btnModeAtcData').addEventListener('click',openAtcData);
+$('btnModeOnlineList').addEventListener('click',()=>{ showPage('scrOnlineList'); requestOnlineList(); });
+$('btnOnlineListBack').addEventListener('click',()=>{ closeOnlineListWs(); showModeSelect(); });
+$('btnOnlineListRefresh').addEventListener('click',requestOnlineList);
 $('btnMoreAtcData').addEventListener('click',()=>{ hideModal('moreModal'); openAtcData(); });
 $('btnAtcDataBack').addEventListener('click',()=>{ showPage(atcDataReturnPage); });
 $('btnFollowerBack').addEventListener('click',()=>{ showModeSelect(); });
