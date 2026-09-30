@@ -1155,7 +1155,9 @@ function renderLog(){
     if(!byPilot[key]) byPilot[key]={name:r.pilotName,date:r.date||'',rows:[]};
     byPilot[key].rows.push(r);
   });
-  el.innerHTML=Object.keys(byPilot).map(key=>{
+  // 最新的日期排最上面；日期是 zh-TW 格式（2026/9/30）不能直接當字串排序，要轉成 Date 比較
+  const sortedKeys=Object.keys(byPilot).sort((a,b)=>new Date(byPilot[b].date)-new Date(byPilot[a].date));
+  el.innerHTML=sortedKeys.map(key=>{
     const g=byPilot[key];
     const lines=g.rows.map(r=>
       `<div class="comm-line">
