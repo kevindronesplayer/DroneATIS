@@ -787,7 +787,7 @@ wss.on('connection',ws=>{
           pilot.hasCommand=true;
           const {tName,tType}=getActiveTower(pilot);
           flightLog.push({date:todayStr(),groupName:groupName(pilot.groupId),pilotName:dispName(pilot),type:'session_end',time:nowTimeStr(),rwy:pilot.rwy||'',towerName:tName,towerType:tType});
-          pushComm(dispName(pilot),'tower','任務結束');
+          pushComm(dispName(pilot),'pilot','任務結束');
           broadcastPilots();
         }
         toOwnerTower(conn.clientId,{type:'session_ended',pilotName:pilot?dispName(pilot):msg.pilotName});
