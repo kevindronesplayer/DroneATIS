@@ -643,7 +643,7 @@ wss.on('connection',ws=>{
           // 飛航公告、狀態、回應標籤也一併清空，不要延續結束前那輪的舊資料
           if(ep.pendingReset){
             ep.pendingReset=false;
-            ep.notam=''; ep.status='開機預備'; ep.ackStatus=''; ep.hasCommand=false;
+            ep.notam=''; ep.status='開機預備'; ep.ackStatus=''; ep.hasCommand=false; ep.pilotMsg=null;
             ep.towerConnected=false;
             removeAllGroupMembership(clientId); ep.groupId=null; // NOTAM 清單重來，舊的分類成員資格（可能還分好幾筆各自不同分類）一起失效
             ep.notams=undefined; ensureNotams(ep); // 重新開一輪，NOTAM 清單也砍回只剩1個空白的
@@ -874,6 +874,7 @@ wss.on('connection',ws=>{
         const txt=(msg.message||'').toString().slice(0,120);
         if(!txt) return;
         pushComm(nm,'pilot',txt);
+        if(mp){ mp.pilotMsg={text:txt,time:nowTimeStr()}; broadcastPilots(); } // 塔台飛手條上要看得到，不能只有提示音
         toOwnerTower(conn.masterClientId,{type:'pilot_msg_to_tower', pilotName:nm, message:txt});
         pushToOwnerTower(conn.masterClientId,{title:'飛手訊息',body:nm+'：'+txt});
         break;

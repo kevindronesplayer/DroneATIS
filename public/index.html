@@ -129,6 +129,8 @@ body{font-family:-apple-system,'Noto Sans TC',sans-serif;background:var(--bg);co
 .strip-row2 input,.strip-row2 select{background:var(--sf2);border:1px solid var(--bd);color:var(--tx);border-radius:6px;padding:5px 7px;font-size:13px;font-family:inherit;}
 .strip-row3{margin-top:6px;font-size:13px;color:var(--ac);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
 .strip-row3:empty{display:none;}
+.strip-pmsg{margin-top:6px;font-size:15px;color:var(--am);word-break:break-all;}
+.strip-pmsg:empty{display:none;}
 /* 多 NOTAM（2個以上）：飛航公告/跑道/分類這條在名字下面就不顯示了，各自搬到下面每個 NOTAM 自己的列裡 */
 .pilot-strip.multi-notam .strip-row2{display:none;}
 /* 多 NOTAM（2個以上）：每個 NOTAM 各自一列，點了決定塔台發送區要對哪一個 NOTAM 動作；跑道/分類也各自獨立 */
@@ -722,6 +724,9 @@ function stripRow2HTML(p){
     +`<span>分類 <select class="strip-grp" data-cid="${p.clientId}"><option value="">未分類</option>${groups.map(g=>`<option value="${g.groupId}" ${p.groupId===g.groupId?'selected':''}>${escapeHtml(g.name)}</option>`).join('')}</select></span>`
     +`<span class="strip-meta">${stripMetaHTML(p)}</span>`;
 }
+function stripPmsgHTML(p){
+  return p.pilotMsg?`💬 飛手 ${escapeHtml(p.pilotMsg.time||'')}：${escapeHtml(p.pilotMsg.text)}`:'';
+}
 function stripRow3HTML(p){
   return (p.followers&&p.followers.length)?`👥 跟隨: ${escapeHtml(p.followers.map(f=>f.name).join(', '))}`:'';
 }
@@ -799,6 +804,7 @@ function renderStrips(conn){
       </div>
       <div class="strip-row2">${stripRow2HTML(p)}</div>
       <div class="strip-notam-list">${stripNotamListHTML(p)}</div>
+      <div class="strip-pmsg">${stripPmsgHTML(p)}</div>
       <div class="strip-row3">${stripRow3HTML(p)}</div>
     </div>`;
   }).join('');
@@ -877,6 +883,7 @@ function updateStrip(p){
       });
     }
   }
+  const pm=el.querySelector('.strip-pmsg'); if(pm) pm.textContent=stripPmsgHTML(p);
   const r3=el.querySelector('.strip-row3'); if(r3) r3.textContent=stripRow3HTML(p);
 }
 
